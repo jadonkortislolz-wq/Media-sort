@@ -28,6 +28,7 @@ from sqlalchemy.engine import Engine
 
 from .config import ActionType, Settings
 from .db import get_db_session, init_db
+from . import __version__
 from .models import BatchRecord, Operation, QuarantineRecord, QuarantineStatus
 from .quarantine import QuarantineManager
 from .sorter import MediaSorterApp
@@ -702,7 +703,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def render_dashboard():
         """Serve the interactive modern Web Dashboard."""
-        return r"""<!DOCTYPE html>
+        html = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1225,6 +1226,126 @@ def create_app(
       background: rgba(255, 255, 255, 0.03);
     }
 
+    /* 15. Catppuccin Mocha (Warm Pastel & Rosewater) */
+    [data-theme="catppuccin-mocha"] {
+      --bg: #1e1e2e;
+      --card-bg: #302d41;
+      --card-hover: #3e3a50;
+      --border: #45475a;
+      --text: #cdd6f4;
+      --text-muted: #a6adc8;
+      --text-title: #f5e0dc;
+      --accent: #f5c2e7;
+      --accent-hover: #f38ba8;
+      --emerald: #a6e3a1;
+      --emerald-hover: #94e2d5;
+      --amber: #f9e2af;
+      --rose: #f38ba8;
+      --indigo: #cba6f7;
+      --subbar-bg: rgba(30, 30, 46, 0.85);
+      --badge-bg: #3e3a50;
+    }
+
+    /* 16. Rosé Pine (Muted Rose & Twilight) */
+    [data-theme="rose-pine"] {
+      --bg: #191724;
+      --card-bg: #1f1d2e;
+      --card-hover: #26233a;
+      --border: #403d52;
+      --text: #e0def4;
+      --text-muted: #908caa;
+      --text-title: #ebbcba;
+      --accent: #ebbcba;
+      --accent-hover: #eb6f92;
+      --emerald: #9ccfd8;
+      --emerald-hover: #31748f;
+      --amber: #f6c177;
+      --rose: #eb6f92;
+      --indigo: #c4a7e7;
+      --subbar-bg: rgba(25, 23, 36, 0.85);
+      --badge-bg: #26233a;
+    }
+
+    /* 17. Gruvbox Dark (Earthy Retro & Warm Orange) */
+    [data-theme="gruvbox-dark"] {
+      --bg: #1d2021;
+      --card-bg: #282828;
+      --card-hover: #3c3836;
+      --border: #504945;
+      --text: #ebdbb2;
+      --text-muted: #a89984;
+      --text-title: #fbf1c7;
+      --accent: #fe8019;
+      --accent-hover: #d65d0e;
+      --emerald: #b8bb26;
+      --emerald-hover: #98971a;
+      --amber: #fabd2f;
+      --rose: #fb4934;
+      --indigo: #d3869b;
+      --subbar-bg: rgba(29, 32, 33, 0.85);
+      --badge-bg: #3c3836;
+    }
+
+    /* 18. Solarized Dark (Scientific Blue & Yellow) */
+    [data-theme="solarized-dark"] {
+      --bg: #002b36;
+      --card-bg: #073642;
+      --card-hover: #0a4555;
+      --border: #586e75;
+      --text: #93a1a1;
+      --text-muted: #657b83;
+      --text-title: #fdf6e3;
+      --accent: #268bd2;
+      --accent-hover: #2176ad;
+      --emerald: #859900;
+      --emerald-hover: #6d7e00;
+      --amber: #b58900;
+      --rose: #dc322f;
+      --indigo: #6c71c4;
+      --subbar-bg: rgba(0, 43, 54, 0.9);
+      --badge-bg: #0a4555;
+    }
+
+    /* 19. Nightowl (Deep Navy & Coral) */
+    [data-theme="nightowl"] {
+      --bg: #011627;
+      --card-bg: #0b2942;
+      --card-hover: #13385b;
+      --border: #1d3b53;
+      --text: #d6deeb;
+      --text-muted: #7fdbca;
+      --text-title: #ffffff;
+      --accent: #c792ea;
+      --accent-hover: #b46ddf;
+      --emerald: #22da6e;
+      --emerald-hover: #addb67;
+      --amber: #ecc48d;
+      --rose: #ef5350;
+      --indigo: #82aaff;
+      --subbar-bg: rgba(1, 22, 39, 0.9);
+      --badge-bg: #13385b;
+    }
+
+    /* 20. Vesper (Warm Noir & Copper) */
+    [data-theme="vesper"] {
+      --bg: #101010;
+      --card-bg: #1a1a1a;
+      --card-hover: #232323;
+      --border: #333333;
+      --text: #d4d4d4;
+      --text-muted: #6a6a6a;
+      --text-title: #ffffff;
+      --accent: #d4976c;
+      --accent-hover: #c78555;
+      --emerald: #78b892;
+      --emerald-hover: #5e9c78;
+      --amber: #e6c07b;
+      --rose: #e06c75;
+      --indigo: #c792ea;
+      --subbar-bg: rgba(16, 16, 16, 0.9);
+      --badge-bg: #232323;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     /* Scrollable app viewport - list scrolls without moving website header */
@@ -1691,7 +1812,7 @@ def create_app(
         <div class="brand">
           <div class="brand-icon">📂</div>
           <div>
-            <div class="brand-title" style="display: flex; align-items: center; gap: 0.5rem;">Media Sorter <span style="font-size: 0.72rem; font-weight: 600; vertical-align: middle; background: rgba(56, 189, 248, 0.18); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.12rem 0.5rem; border-radius: 9999px;">v1.0.0</span></div>
+            <div class="brand-title" style="display: flex; align-items: center; gap: 0.5rem;">Media Sorter <span style="font-size: 0.72rem; font-weight: 600; vertical-align: middle; background: rgba(56, 189, 248, 0.18); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.12rem 0.5rem; border-radius: 9999px;">__VERSION_PLACEHOLDER__</span></div>
             <div class="brand-subtitle">Automated Downloads Organizer (Movies & Shows)</div>
           </div>
         </div>
@@ -1704,6 +1825,7 @@ def create_app(
           <button class="btn btn-amber" onclick="triggerRollback()">⏮ Rollback Batch</button>
           <button class="btn btn-outline" onclick="addSampleDownloads()">🧪 Add Test Samples</button>
           <button class="btn btn-outline" style="border-color: var(--accent); color: var(--accent); font-weight: 700;" onclick="openSettingsModal()">⚙️ Settings</button>
+          <button class="btn btn-outline" onclick="handleUpdate()">🔄 Update</button>
         </div>
       </div>
 
@@ -2223,6 +2345,12 @@ def create_app(
       { id: 'paper-light', name: 'Paper Light', desc: 'Clean Studio & Pure Light' },
       { id: 'neo-brutalism', name: 'Neo-Brutalism', desc: 'High Contrast & Pop Borders' },
       { id: 'aurora-glass', name: 'Aurora Glass', desc: 'Frosted Mesh & Glassmorphism' },
+      { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', desc: 'Warm Pastel & Rosewater' },
+      { id: 'rose-pine', name: 'Rosé Pine', desc: 'Muted Rose & Twilight' },
+      { id: 'gruvbox-dark', name: 'Gruvbox Dark', desc: 'Earthy Retro & Warm Orange' },
+      { id: 'solarized-dark', name: 'Solarized Dark', desc: 'Scientific Blue & Yellow' },
+      { id: 'nightowl', name: 'Nightowl', desc: 'Deep Navy & Coral' },
+      { id: 'vesper', name: 'Vesper', desc: 'Warm Noir & Copper' },
     ];
 
     function setTheme(themeId) {
@@ -2832,10 +2960,35 @@ def create_app(
       setTheme(savedTheme);
     } catch (e) {}
 
+    async function handleUpdate() {
+      try {
+        showToast('Checking for updates…');
+        const res = await fetch('/api/check_update');
+        const data = await res.json();
+        if (!data.update_available) {
+          showToast('You are on the latest version (' + data.current_version + ')');
+          return;
+        }
+        if (confirm('Update available: ' + data.latest_version + ' (current: ' + data.current_version + '). Update now?')) {
+          showToast('Updating…');
+          const upRes = await fetch('/api/perform_update', { method: 'POST' });
+          const upData = await upRes.json();
+          if (upData.status === 'update_started') {
+            showToast('Update started. The server will restart shortly.');
+          } else {
+            showToast('Update response: ' + JSON.stringify(upData));
+          }
+        }
+      } catch (e) {
+        showToast('Update check failed: ' + e.message);
+      }
+    }
+
     loadDashboard();
   </script>
 </body>
 </html>
 """
+        return html.replace("__VERSION_PLACEHOLDER__", __version__)
 
     return app
