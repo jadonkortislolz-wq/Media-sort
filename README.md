@@ -1,240 +1,314 @@
-<div align="center">
+# Media Sorter
 
-# 🎬 Media Sorter
+A reliable, high-performance media classification and organization engine engineered with defensive data safety, atomic operations, dry-run simulation, operation journaling, transactional rollback, and review quarantine.
 
-**High-performance, automated media classification and organization engine with defensive data safety, atomic operations, transactional rollback, and modern web UI.**
-
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
-[![SQLite WAL](https://img.shields.io/badge/SQLite-WAL%20Journaling-003B57.svg)](https://www.sqlite.org/wal.html)
-[![Tests Passing](https://img.shields.io/badge/tests-51%20passing-brightgreen.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-</div>
-
----
-
-## 🌟 Highlights
-
-- 🛡️ **Zero Silent Data Loss Guarantee**: Files are never deleted or silently overwritten. Unsure files are safely quarantined.
-- 🔍 **Multi-Signal Classification Engine**: Classifies media using filename patterns, tokens, codecs, container streams, ID3v2/Vorbis tags, and episode hierarchies.
-- 🎨 **Modern Interactive Web UI**: Fully responsive dashboard with customizable themes, Folder Explorer with show detection & live TV show artwork, Quarantine Queue, and Settings.
-- ⚡ **Non-Shifting Scrollable Viewport**: Smoothly scroll through 500+ file libraries with sticky table headers without shifting the top navigation bar.
-- ↩️ **Atomic Operations & 1-Click Rollback**: Every batch is journaled in SQLite WAL mode. Easily invert any batch with a single click or CLI command.
-- 🚀 **Production Ready**: Native PM2 integration, Docker & Docker Compose setup, and systemd service templates included.
+Supported media types:
+- **Movies** (Feature films, scene releases, REMUX, UHD/4K, multi-part)
+- **TV Shows** (Episodic series, multi-episode files, season packages)
+- **Anime** (Fansub groups, absolute numbering, season/episode mapping)
+- **Music** (Multi-disc albums, flac/mp3, ID3v2/Vorbis tags, track/artist tokens)
+- **Audiobooks** (M4B, chapter tags, narrator metadata, multi-part)
+- **Podcasts** (Dated releases, show prefixes, episode titles)
+- **Documentaries** (Documentary flags, broadcast tags)
+- **Home Videos & Photos** (EXIF datetime, camera models, smartphone naming schemes)
+- **Sidecars & Companions** (Subtitles `.srt/.ass`, Artwork `poster/cover`, Metadata `.nfo`, Extras `-trailer/-sample`)
+- **Archives & Unknowns** (Zip, rar, 7z, and unclassified files isolated safely)
 
 ---
 
-## 📑 Table of Contents
+## Key Safety Guarantees
 
-- [Supported Media Types](#-supported-media-types)
-- [Safety & Reliability Principles](#-safety--reliability-principles)
-- [Web Dashboard Features](#-web-dashboard-features)
-- [Quickstart & Installation](#-quickstart--installation)
-  - [Option A: Python Virtualenv](#option-a-python-virtualenv)
-  - [Option B: PM2 Process Manager](#option-b-pm2-process-manager-recommended-for-servers)
-  - [Option C: Docker & Docker Compose](#option-c-docker--docker-compose)
-- [Configuration (.env)](#-configuration-env)
-- [CLI Reference](#-cli-reference)
-- [REST API Reference](#-rest-api-reference)
-- [Testing & Quality Assurance](#-testing--quality-assurance)
-- [License](#-license)
+1. **Zero Silent Data Loss**: Files are never deleted by default.
+2. **Dry-Run by Default**: Operations always default to dry-run preview unless explicitly launched with `--live` or configured otherwise.
+3. **No Guessing / Quarantine Queue**: If classification confidence falls below the configured threshold (default `0.75`), the file is placed into the Quarantine queue for human inspection.
+4. **Collision & Conflict Prevention**: Destination paths are validated beforehand. If a collision is detected, the configurable policy (`rename_unique`, `replace_if_higher_quality`, `quarantine`, `skip`, or `error`) is triggered safely.
+5. **Atomic Moves**: Moves on the same filesystem use `os.replace`. Moves across filesystems write to hidden temporary files (`.tmp_media_sorter_*`), verify integrity/size, atomically replace into destination, and only then remove source files.
+6. **Transactional Journaling & Instant Rollback**: All operations are recorded in a SQLite WAL database (`OperationStatus.PLANNED` -> `IN_PROGRESS` -> `COMMITTED`). Any batch can be cleanly inverted with `media-sorter rollback --batch-id <id>`.
+7. **Active Download / Lock Protection**: Automatically ignores files modified within the minimum file age (default 300s) or locked by downloading torrent/browser clients.
 
 ---
 
-## 🎯 Supported Media Types
+## Architecture
 
-| Category | Typical Formats | Detection Signals |
-| :--- | :--- | :--- |
-| **Movies** | `.mkv`, `.mp4`, `.avi`, `.m4v` | Year tags, edition flags (Extended/Director's Cut), resolution tokens, single file structures. |
-| **TV Shows** | `.mkv`, `.mp4`, `.ts` | `S01E05`, `1x05`, season pack structures, multi-episode tokens, episode titles. |
-| **Anime** | `.mkv`, `.mp4` | Fansub release brackets `[SubsPlease]`, absolute numbering (`Episode 500`), CRC32 hashes. |
-| **Music** | `.flac`, `.mp3`, `.m4a`, `.opus` | ID3v2/Vorbis metadata, disc/track tags, multi-disc hierarchies, artist tokens. |
-| **Audiobooks** | `.m4b`, `.mp3` | Chapter tags, narrator metadata, audiobook series tags. |
-| **Podcasts** | `.mp3`, `.m4a` | Release dates (`YYYY-MM-DD`), episode numbers, show titles. |
-| **Documentaries**| `.mkv`, `.mp4` | Miniseries tags, broadcast metadata, documentary tokens. |
-| **Sidecars** | `.srt`, `.ass`, `.nfo`, images | Automatically mapped and moved alongside parent media files. |
-| **Quarantine** | Any unclassified / low confidence | Isolated safely in the quarantine queue for user review. |
-
----
-
-## 🛡️ Safety & Reliability Principles
-
-1. **Dry-Run by Default**: All actions run in simulation mode unless explicitly triggered as Live.
-2. **Confidence Thresholding**: Items with classification score `< 0.75` (configurable) are diverted to Quarantine rather than misplaced.
-3. **Collision Avoidance**: If a target file already exists, Media Sorter executes your collision policy (`rename_unique`, `replace_if_higher_quality`, `quarantine`, `skip`, or `error`).
-4. **Atomic Two-Stage Moves**: Same-filesystem operations use atomic `os.replace`. Cross-filesystem operations write to hidden temporary files, verify size and integrity, atomically link, and only then unlink the source.
-5. **Active File Protection**: Files actively being written by BitTorrent or downloading clients (or modified within `min_file_age_seconds`) are skipped until finished.
-6. **Transactional Journaling**: Every operation logs old path, new path, file size, hash, and status into a SQLite database with WAL journaling.
-
----
-
-## 🖥️ Web Dashboard Features
-
-### 1. Folder Explorer with Live Show Artwork & Accordions
-- **Intelligent Grouping**: Automatically identifies episodes belonging to the same series in your downloads folder.
-- **Show Artwork**: Displays official high-resolution posters from TVmaze and local directories next to the believed show name.
-- **Collapsible Cards**: Expand and collapse individual shows or use "Expand All" / "Collapse All" controls.
-- **Single Files Table**: Non-episodic files and movies are cleanly separated with detected metadata.
-
-### 2. Dedicated Settings Modal & Process Control
-- Access settings via the **⚙️ Settings** button in the header.
-- Switch visual themes with live color cards.
-- **Restart Server Process**: Restarts the PM2 process with an automatic reconnection overlay.
-- **Clear Activity History**: Wipes historical batch records with a single click.
-
-### 3. Quarantine Review & Resolution
-- Review items with lower confidence.
-- Sort them into **Movies** or **Shows** with one click.
-
----
-
-## 🚀 Quickstart & Installation
-
-### Option A: Python Virtualenv
-
-```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/media-sorter.git
-cd media-sorter
-
-# 2. Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Install package and dependencies
-pip install -e .
-
-# 4. Copy and configure .env
-cp .env.example .env
-nano .env
-
-# 5. Start the web dashboard
-media-sorter web --host 0.0.0.0 --port 8085
+```
+                                  +-----------------------+
+                                  |   Source Directories  |
+                                  +-----------+-----------+
+                                              |
+                                              v
+                                  +-----------------------+
+                                  |  Scanner (Lock/Age)   |
+                                  +-----------+-----------+
+                                              |
+                     +------------------------+------------------------+
+                     |                        |                        |
+                     v                        v                        v
+          +--------------------+    +-------------------+    +-------------------+
+          | Filename Tokenizer |    |  Media Analyzer   |    | External Provider |
+          | (Regex / Patterns) |    | (Headers/Atoms)   |    | (TMDB/MusicBrainz)|
+          +----------+---------+    +---------+---------+    +---------+---------+
+                     |                        |                        |
+                     +------------------------+------------------------+
+                                              |
+                                              v
+                                  +-----------------------+
+                                  | Multi-Signal          |
+                                  | Classifier & Scorer   |
+                                  +-----------+-----------+
+                                              |
+                        +---------------------+---------------------+
+                        | (Confidence >= 0.75)|                     | (Confidence < 0.75)
+                        v                                           v
+            +-----------------------+                   +-----------------------+
+            | Namer & Path Sanitizer|                   | Quarantine Manager    |
+            +-----------+-----------+                   +-----------------------+
+                        |
+                        v
+            +-----------------------+
+            |  Executor & Journal   | <==== SQLite WAL Database (media_sorter.db)
+            +-----------+-----------+
+                        |
+            +-----------+-----------+
+            | Organized Destination |
+            +-----------------------+
 ```
 
-### Option B: PM2 Process Manager (Recommended for Servers)
+---
+
+## Quickstart
+
+### 1. Installation
 
 ```bash
-# 1. Install PM2 globally (if not already installed)
-npm install -g pm2
+# Clone repository
+git clone https://github.com/example/media-sorter.git
+cd media-sorter
 
-# 2. Start Media Sorter using ecosystem.config.js
+# Create virtual environment and install
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+### 2. Configuration (.env)
+
+Media Sorter supports simple, editable settings directly in a `.env` file in the project root:
+
+```ini
+# .env
+DOWNLOADS_DIR=./downloads     # Source folder where downloads arrive
+MOVIES_DIR=./movies           # Destination for Movies
+SHOWS_DIR=./shows             # Destination for TV Series
+DRY_RUN=false                 # false = move files live; true = simulation preview
+ACTION=move                   # move | copy | link | hardlink
+CONFIDENCE_THRESHOLD=0.75     # Minimum classification confidence (0.0 - 1.0)
+MIN_FILE_AGE_SECONDS=0        # Ignore files modified within N seconds
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8085
+DATABASE_PATH=media_sorter.db
+```
+
+Check your active configuration at any time:
+
+```bash
+media-sorter config show
+```
+
+### 3. Web Dashboard & Management UI
+
+Start the responsive, modern Web Management Dashboard:
+
+```bash
+media-sorter server
+```
+
+Open `http://localhost:8085` (or `http://<your-host-ip>:8085`) in your browser. The web UI includes:
+- **Dashboard & Activity**: Live metrics, mode badge, 1-click Dry-Run Preview & Live Sort buttons, 1-click Server Restart button, and past batch history.
+- **Folder Explorer**: Live view of files in `downloads/`, `movies/`, and `shows/` with file sizes and timestamps.
+- **Quarantine Review**: Visual approval queue for ambiguous media with 1-click "Approve as Movie" or "Approve as Show".
+- **Settings & .env**: Interactive settings form where you can update directory paths, toggle dry-run mode, and save directly to `.env`.
+
+### 4. Running with PM2 (Production Process Manager)
+
+Media Sorter includes an [`ecosystem.config.js`](file:///md0/media-sorter/ecosystem.config.js) file for daemonizing under PM2:
+
+```bash
+# Start Media Sorter with PM2
 pm2 start ecosystem.config.js
 
-# 3. Save PM2 startup list
+# View status
+pm2 status
+
+# View live stream logs
+pm2 logs media-sorter
+
+# Restart or reload
+pm2 restart media-sorter
+
+# Enable PM2 to auto-start on machine boot
 pm2 save
 pm2 startup
 ```
 
-To view logs or restart:
-```bash
-pm2 logs media-sorter
-pm2 restart media-sorter --update-env
-```
+The web dashboard's **🔄 Restart Server** button connects natively with PM2: clicking it restarts the process and automatically refreshes the web page once back online.
 
-### Option C: Docker & Docker Compose
+### 5. Scan & Preview (Dry-Run)
+
+Preview classification without touching any files:
 
 ```bash
-# Configure paths in docker-compose.yml or .env, then launch:
-docker compose up -d
+media-sorter scan
 ```
 
----
-
-## ⚙️ Configuration (.env)
-
-Create a `.env` file in the project root:
-
-```ini
-# Directories (Absolute or Relative Paths)
-DOWNLOADS_DIR=/path/to/downloads   # Incoming media source
-MOVIES_DIR=/path/to/movies         # Destination for movies
-SHOWS_DIR=/path/to/tv              # Destination for TV shows and anime
-
-# Operational Mode
-DRY_RUN=false                      # true = preview only, false = perform actual moves
-CONFIDENCE_THRESHOLD=0.75          # Minimum confidence to automatically sort (0.0 - 1.0)
-ACTION=move                        # 'move', 'copy', or 'hardlink'
-SCAN_INTERVAL=0                    # Background daemon scan interval in seconds (0 = disabled)
-MIN_FILE_AGE=0                     # Minimum file age in seconds before processing
-
-# Web Server
-PORT=8085
-HOST=0.0.0.0
-```
-
----
-
-## 💻 CLI Reference
-
-Media Sorter includes a full CLI for scripting and headless servers:
+Generate a dry-run batch preview:
 
 ```bash
-# Run a dry-run preview on downloads
-media-sorter run --dry-run
+media-sorter organize --dry-run
+```
 
-# Run live sorting
-media-sorter run --live
+### 5. Execute Live Organization
 
-# Rollback a specific batch
-media-sorter rollback --batch-id <BATCH_UUID>
+Sort files from `downloads/` into `movies/` or `shows/`:
 
-# Rollback the most recent batch
-media-sorter rollback --latest
+```bash
+media-sorter organize --live
+```
 
-# Review quarantined files
+### 6. Instant Rollback
+
+If you ever need to undo an organization run:
+
+```bash
+# Revert latest batch
+media-sorter rollback
+
+# Revert specific batch
+media-sorter rollback --batch-id <batch-uuid>
+```
+
+### 7. Review Quarantine Queue
+
+List and resolve files requiring manual verification via CLI:
+
+```bash
 media-sorter quarantine list
-
-# Launch web dashboard
-media-sorter web --port 8085
+media-sorter quarantine resolve 1 --category movie
 ```
 
 ---
 
-## 🌐 REST API Reference
+## CLI Reference
 
-The built-in FastAPI server provides endpoints for dashboard integrations:
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/` | Serves the interactive web interface. |
-| `GET` | `/api/status` | Current server configuration, paths, and stats. |
-| `GET` | `/api/files` | Discovered files, show groupings, and poster URLs. |
-| `POST` | `/api/run` | Execute sort run (`{"dry_run": true/false}`). |
-| `POST` | `/api/rollback` | Rollback a previous batch (`{"batch_id": "..."}`). |
-| `GET` | `/api/batches` | List batch history and statuses. |
-| `POST` | `/api/batches/clear` | Clear batch and activity history. |
-| `GET` | `/api/quarantine` | List files currently held in quarantine. |
-| `POST` | `/api/quarantine/resolve`| Manually resolve a quarantined item (`movie` or `tv`). |
-| `GET` | `/api/poster` | Query or fetch show poster artwork URL. |
-| `POST` | `/api/settings` | Save updated `.env` configuration. |
-| `POST` | `/api/restart` | Gracefully restart the server process. |
+| Command | Description |
+|---|---|
+| `media-sorter scan` | Discover and analyze source media, displaying classification table |
+| `media-sorter organize` | Execute organization or dry-run preview (`--dry-run` or `--live`) |
+| `media-sorter rollback` | Roll back a batch and restore files to source paths |
+| `media-sorter history` | View audit trail of past batches and metrics |
+| `media-sorter quarantine list` | List items pending manual human review |
+| `media-sorter quarantine resolve` | Approve or reclassify a quarantined item |
+| `media-sorter server` | Start FastAPI REST API and web management dashboard |
+| `media-sorter config show` | Display active configuration settings in YAML |
+| `media-sorter config init` | Generate a starter configuration file |
 
 ---
 
-## 🧪 Testing & Quality Assurance
+## Database & State Tracking
 
-Media Sorter includes a comprehensive suite of 51 unit, integration, and fuzz tests:
+The system utilizes SQLite in **Write-Ahead Logging (WAL)** mode with `PRAGMA synchronous=NORMAL` and `PRAGMA foreign_keys=ON`:
+- `batches`: High-level run records with status (`IN_PROGRESS`, `COMPLETED`, `ROLLED_BACK`), dry-run indicator, counts of moved, skipped, failed, and quarantined files.
+- `operations`: Fine-grained journal entries tracking `src`, `dst`, `action` (`move`, `copy`, `link`, `hardlink`), `src_hash`, `dst_hash`, `backup_path`, diagnostic details, and timestamps.
+- `files`: File fingerprint cache (`path`, `size`, `mtime`, `hash`) to avoid redundant metadata probing on unchanged files.
+- `quarantine`: Audit log for low-confidence or conflicting files holding reason, signals, and resolution states.
+
+### Migrations with Alembic
+
+Run database migrations:
 
 ```bash
-# Run tests
-pytest
+alembic upgrade head
+```
 
-# Run tests with verbose output
+Create a new migration:
+
+```bash
+alembic revision --autogenerate -m "Add custom column"
+```
+
+---
+
+## Deployment
+
+### Docker
+
+Build and run with Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+Check health status:
+
+```bash
+curl -f http://localhost:8080/api/status
+```
+
+### Systemd Service
+
+1. Copy repository to `/opt/media-sorter`.
+2. Copy `media-sorter.service` to `/etc/systemd/system/media-sorter.service`.
+3. Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now media-sorter
+sudo systemctl status media-sorter
+```
+
+---
+
+## Backup & Upgrade Instructions
+
+### Database Backup
+
+Because SQLite uses WAL mode, use the standard SQLite online backup or VACUUM INTO command:
+
+```bash
+# Safe hot-backup of live database
+sqlite3 media_sorter.db ".backup 'media_sorter.backup.db'"
+```
+
+Or backup directory before upgrading:
+
+```bash
+cp media_sorter.db media_sorter.db.bak
+```
+
+### Upgrading
+
+1. Pull latest release:
+   ```bash
+   git pull origin main
+   ```
+2. Update dependencies:
+   ```bash
+   pip install -e .
+   ```
+3. Run Alembic schema migrations:
+   ```bash
+   alembic upgrade head
+   ```
+4. Restart service:
+   ```bash
+   sudo systemctl restart media-sorter
+   ```
+
+---
+
+## Testing
+
+Run the full test suite (unit tests, integration tests, and Hypothesis property-based fuzz tests):
+
+```bash
 pytest -v
 ```
-
-Test coverage includes:
-- Multi-token classification and fuzzy filename parsing.
-- High-concurrency database journaling in SQLite WAL mode.
-- Cross-filesystem atomic transfer simulation.
-- 100% rollback fidelity across complex batches.
-- Web API endpoints and environment reconfiguration.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

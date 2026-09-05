@@ -32,6 +32,7 @@ from . import __version__
 from .models import BatchRecord, Operation, QuarantineRecord, QuarantineStatus
 from .quarantine import QuarantineManager
 from .sorter import MediaSorterApp
+from .tokenizer import FilenameTokenizer
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +48,35 @@ class RollbackRequest(BaseModel):
 class ResolveRequest(BaseModel):
     category: str
     target_path: Optional[str] = None
+    title: Optional[str] = None
+    year: Optional[int] = None
+    season: Optional[int] = None
+    episode: Optional[int] = None
+
+
+class BulkResolveRequest(BaseModel):
+    category: str
+    item_ids: Optional[List[int]] = None
+    target_path: Optional[str] = None
+    title: Optional[str] = None
+    year: Optional[int] = None
+    season: Optional[int] = None
+    episode: Optional[int] = None
+
+
+class BulkUndoRequest(BaseModel):
+    item_ids: Optional[List[int]] = None
+    scope: str = "pending"  # "pending" or "resolved"
+
+
+
+class ManualSortRequest(BaseModel):
+    relative_path: str
+    category: str
+    title: str
+    year: Optional[int] = None
+    season: Optional[int] = None
+    episode: Optional[int] = None
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -79,6 +109,8 @@ def list_files_in_dir(directory: Path) -> List[Dict[str, Any]]:
 
     for root, _, files in os.walk(directory):
         for f in files:
+            if f.lower().endswith(".txt"):
+                continue
             p = Path(root) / f
             try:
                 st = p.stat()
@@ -225,26 +257,50 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
 
     for root, _, files in os.walk(directory):
         for f in files:
+            if f.lower().endswith(".txt"):
+                continue
             p = Path(root) / f
             try:
                 st = p.stat()
                 rel = p.relative_to(directory)
                 t = tok.tokenize(p)
 
+                # Check if the file itself has a year or if any parent folder has a year
+                movie_year = t.year
+                movie_title = t.title
+                if not movie_year and not t.is_episodic and not t.is_anime:
+                    for part in reversed(rel.parts[:-1]):
+                        part_tok = tok.tokenize(Path(part + p.suffix))
+                        if part_tok.year and not part_tok.is_episodic and not part_tok.is_anime:
+                            movie_year = part_tok.year
+                            if not movie_title or movie_title == p.stem:
+                                movie_title = part_tok.title
+                            break
+
                 show_name = None
+                # A file is a show if it has explicit episodic/anime markers
                 if (t.is_episodic or t.is_anime) and t.title:
                     cleaned = clean_detected_show_name(t.title)
                     if len(cleaned) >= 2:
                         show_name = cleaned
 
-                # If no show title from filename, check folder hierarchy
+                # If no show title from filename, check if parent directory is an explicit Season folder
                 if not show_name:
-                    for part in rel.parts[:-1]:
-                        part_tok = tok.tokenize(Path(part + p.suffix))
-                        cleaned = clean_detected_show_name(part_tok.title if part_tok.title else part)
-                        if len(cleaned) >= 2:
-                            show_name = cleaned
+                    for idx, part in enumerate(rel.parts[:-1]):
+                        if re.search(r"(?i)\bseason\s*\d+\b|\bs\d{1,2}\b|\bseries\s*\d+\b", part):
+                            if idx > 0:
+                                show_name = clean_detected_show_name(rel.parts[idx - 1])
+                            else:
+                                show_name = clean_detected_show_name(part)
+                            if t.season is None:
+                                s_match = re.search(r"(?i)\b(?:season|s|series)\s*(\d{1,2})\b", part)
+                                if s_match:
+                                    t.season = int(s_match.group(1))
                             break
+
+                # If the file has a release year and NO episodic markers, it is definitely a MOVIE!
+                if movie_year and not t.is_episodic and t.season is None and t.episode is None:
+                    show_name = None
 
                 file_info: Dict[str, Any] = {
                     "name": f,
@@ -266,11 +322,18 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
                     detected_type = "other"
                     believed_title = f
                     dest = None
-                    if t.year and t.title:
+                    is_video = p.suffix.lower() in [".mkv", ".mp4", ".avi", ".mov", ".m4v", ".webm", ".ts", ".flv"]
+                    if movie_year:
                         detected_type = "movie"
-                        cleaned_movie = clean_detected_show_name(t.title)
-                        believed_title = f"{cleaned_movie} ({t.year})"
+                        cleaned_movie = clean_detected_show_name(movie_title if movie_title else p.stem)
+                        believed_title = f"{cleaned_movie} ({movie_year})"
                         dest = str(movies_base / believed_title)
+                    elif is_video:
+                        detected_type = "movie"
+                        cleaned_movie = clean_detected_show_name(t.title if t.title else p.stem)
+                        believed_title = cleaned_movie
+                        dest = str(movies_base / believed_title)
+
                     file_info["detected_type"] = detected_type
                     file_info["believed_title"] = believed_title
                     file_info["believed_destination"] = dest
@@ -479,6 +542,14 @@ def create_app(
         reverted = sorter.rollback(batch_id=req.batch_id)
         return {"status": "ok", "reverted_files": reverted}
 
+    @app.post("/api/rollback/all")
+    def trigger_rollback_all():
+        """Roll back all past completed batches."""
+        sorter = MediaSorterApp(settings, engine)
+        reverted = sorter.rollback_all()
+        return {"status": "ok", "reverted_files": reverted}
+
+
     @app.get("/api/files")
     def get_files():
         """List files currently in downloads, movies, and shows directories."""
@@ -536,11 +607,30 @@ def create_app(
             else:
                 raise HTTPException(status_code=404, detail="File not found")
         target.unlink()
+        # Delete companion .txt file if present
+        companion_txt = target.with_suffix(".txt")
+        if companion_txt.is_file() and companion_txt != target:
+            try:
+                companion_txt.unlink()
+            except Exception:
+                pass
+
         # Clean up empty parent directories up to downloads_path
         parent = target.parent
         while parent != downloads_path and parent.is_relative_to(downloads_path):
             try:
-                entries = [e for e in parent.iterdir() if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini")]
+                # Clean up any .txt files in parent directory
+                for item in list(parent.iterdir()):
+                    if item.is_file() and item.name.lower().endswith(".txt"):
+                        try:
+                            item.unlink()
+                        except Exception:
+                            pass
+
+                entries = [
+                    e for e in parent.iterdir()
+                    if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini") and not e.name.lower().endswith(".txt")
+                ]
                 if not entries:
                     for junk in parent.iterdir():
                         try:
@@ -560,19 +650,125 @@ def create_app(
         with get_db_session(engine) as session:
             qm = QuarantineManager(session)
             items = qm.list_pending()
-            return [
-                {
-                    "id": q.id,
-                    "src": q.src,
-                    "filename": Path(q.src).name,
-                    "suggested_category": q.suggested_category,
-                    "confidence": int((q.confidence or 0) * 100),
-                    "reason": q.reason,
-                    "signals": q.signals,
-                    "created_at": q.created_at.strftime("%Y-%m-%d %H:%M:%S") if q.created_at else None,
-                }
-                for q in items
-            ]
+            resolved = qm.list_resolved(limit=30)
+            return {
+                "pending": [
+                    {
+                        "id": q.id,
+                        "src": q.src,
+                        "filename": Path(q.src).name,
+                        "suggested_category": q.suggested_category,
+                        "confidence": int((q.confidence or 0) * 100),
+                        "reason": q.reason,
+                        "signals": q.signals,
+                        "created_at": q.created_at.strftime("%Y-%m-%d %H:%M:%S") if q.created_at else None,
+                        "status": q.status,
+                    }
+                    for q in items
+                ],
+                "resolved": [
+                    {
+                        "id": q.id,
+                        "src": q.src,
+                        "filename": Path(q.src).name,
+                        "category": q.suggested_category,
+                        "resolved_path": q.resolved_path,
+                        "resolved_filename": Path(q.resolved_path).name if q.resolved_path else None,
+                        "resolved_at": q.resolved_at.strftime("%Y-%m-%d %H:%M:%S") if q.resolved_at else None,
+                        "status": q.status,
+                    }
+                    for q in resolved
+                ],
+            }
+
+    def _do_resolve_item(
+        qm: QuarantineManager,
+        rec: QuarantineRecord,
+        category: str,
+        title: Optional[str] = None,
+        year: Optional[int] = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
+        target_path: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        cat = category.lower()
+        src_path = Path(rec.src)
+        if not src_path.exists():
+            downloads_path = settings.get_source_paths()[0] if settings.get_source_paths() else Path("downloads")
+            for root, _, files in os.walk(downloads_path):
+                if src_path.name in files:
+                    src_path = Path(root) / src_path.name
+                    break
+
+        if not src_path.exists():
+            return False, f"Source file not found: {rec.src}"
+
+        # Determine destination based on manual inputs or defaults
+        if target_path:
+            final_dst = Path(target_path).resolve()
+            final_dst.parent.mkdir(parents=True, exist_ok=True)
+        elif cat == "movie":
+            movies_base = settings.get_destination_path("movie")
+            if title:
+                movie_title = title.strip()
+                y_m = re.search(r"\((19\d\d|20\d\d)\)", movie_title)
+                if y_m and not year:
+                    year = int(y_m.group(1))
+                    movie_title = re.sub(r"\s*\(\d{4}\)", "", movie_title).strip()
+                folder_name = f"{movie_title} ({year})" if year else movie_title
+                file_name = f"{folder_name}{src_path.suffix}"
+                dest_dir = movies_base / folder_name
+            else:
+                tok = FilenameTokenizer()
+                t = tok.tokenize(src_path)
+                if t.title and t.year:
+                    folder_name = f"{t.title} ({t.year})"
+                    dest_dir = movies_base / folder_name
+                    file_name = f"{folder_name}{src_path.suffix}"
+                elif t.title:
+                    dest_dir = movies_base / t.title
+                    file_name = f"{t.title}{src_path.suffix}"
+                else:
+                    dest_dir = movies_base
+                    file_name = src_path.name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / file_name
+
+        elif cat == "tv":
+            shows_base = settings.get_destination_path("tv")
+            if title:
+                show_name = title.strip()
+                s_num = season if season is not None else 1
+                e_num = episode if episode is not None else 1
+                dest_dir = shows_base / show_name / f"Season {s_num:02d}"
+                file_name = f"{show_name} - S{s_num:02d}E{e_num:02d}{src_path.suffix}"
+            else:
+                tok = FilenameTokenizer()
+                t = tok.tokenize(src_path)
+                show_name = t.title if t.title else src_path.stem
+                s_num = t.season if t.season is not None else 1
+                e_num = t.episode if t.episode is not None else 1
+                dest_dir = shows_base / show_name / f"Season {s_num:02d}"
+                file_name = f"{show_name} - S{s_num:02d}E{e_num:02d}{src_path.suffix}"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / file_name
+        else:
+            dest_dir = settings.get_destination_path(cat)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / src_path.name
+
+        # Avoid collision
+        if final_dst.exists() and final_dst.resolve() != src_path.resolve():
+            stem = final_dst.stem
+            suffix = final_dst.suffix
+            counter = 2
+            while final_dst.exists():
+                final_dst = final_dst.parent / f"{stem} ({counter}){suffix}"
+                counter += 1
+
+        shutil.move(src_path, final_dst)
+        qm.resolve_item(rec.id, cat, target_path=final_dst)
+        return True, str(final_dst)
 
     @app.post("/api/quarantine/{item_id}/resolve")
     def resolve_quarantine(item_id: int, req: ResolveRequest):
@@ -582,21 +778,133 @@ def create_app(
             if not rec:
                 raise HTTPException(status_code=404, detail="Quarantine item not found")
 
-            # Determine destination based on chosen category
-            category = req.category.lower()
-            dest_dir = settings.get_destination_path("movie" if category == "movie" else "tv")
-            src_path = Path(rec.src)
+            ok, res = _do_resolve_item(
+                qm, rec,
+                category=req.category,
+                title=req.title,
+                year=req.year,
+                season=req.season,
+                episode=req.episode,
+                target_path=req.target_path,
+            )
+            if not ok:
+                raise HTTPException(status_code=400, detail=res)
 
-            # Move file to the designated library
-            if src_path.exists():
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                final_dst = dest_dir / src_path.name
-                shutil.move(src_path, final_dst)
-                qm.resolve_item(item_id, category, target_path=final_dst)
+            return {
+                "status": "resolved",
+                "item_id": item_id,
+                "category": req.category,
+                "destination": res,
+            }
+
+    @app.post("/api/quarantine/bulk-resolve")
+    def bulk_resolve_quarantine(req: BulkResolveRequest):
+        with get_db_session(engine) as session:
+            qm = QuarantineManager(session)
+            if req.item_ids:
+                records = [qm.get_by_id(i) for i in req.item_ids]
+                records = [r for r in records if r and r.status == QuarantineStatus.PENDING.value]
             else:
-                qm.resolve_item(item_id, category)
+                records = qm.list_pending()
 
-            return {"status": "resolved", "item_id": item_id, "category": category}
+            resolved_count = 0
+            failed_count = 0
+            errors = []
+            for rec in records:
+                ok, res = _do_resolve_item(
+                    qm, rec,
+                    category=req.category,
+                    title=req.title,
+                    year=req.year,
+                    season=req.season,
+                    episode=req.episode,
+                    target_path=req.target_path,
+                )
+                if ok:
+                    resolved_count += 1
+                else:
+                    failed_count += 1
+                    errors.append(res)
+
+            return {
+                "status": "ok",
+                "resolved_count": resolved_count,
+                "failed_count": failed_count,
+                "errors": errors[:10],
+            }
+
+    @app.post("/api/quarantine/{item_id}/undo")
+    def undo_quarantine(item_id: int):
+        with get_db_session(engine) as session:
+            qm = QuarantineManager(session)
+            success = qm.undo_item(item_id)
+            if not success:
+                raise HTTPException(status_code=404, detail="Quarantine item not found or could not be undone")
+            return {"status": "undone", "item_id": item_id}
+
+    @app.post("/api/quarantine/bulk-undo")
+    def bulk_undo_quarantine(req: BulkUndoRequest):
+        with get_db_session(engine) as session:
+            qm = QuarantineManager(session)
+            if req.item_ids:
+                records = [qm.get_by_id(i) for i in req.item_ids]
+                records = [r for r in records if r]
+            elif req.scope == "resolved":
+                records = qm.list_resolved(limit=1000)
+            else:
+                records = qm.list_pending()
+
+            undone_count = 0
+            for rec in records:
+                if qm.undo_item(rec.id):
+                    undone_count += 1
+
+            return {"status": "ok", "undone_count": undone_count}
+
+    @app.post("/api/files/manual-sort")
+    def manual_sort_file(req: ManualSortRequest):
+        downloads_path = (settings.get_source_paths()[0] if settings.get_source_paths() else Path("downloads")).resolve()
+        target = (downloads_path / req.relative_path).resolve()
+        if not target.is_relative_to(downloads_path) or not target.is_file():
+            found = None
+            for root, _, files in os.walk(downloads_path):
+                if req.relative_path in files or target.name in files:
+                    found = Path(root) / (req.relative_path if req.relative_path in files else target.name)
+                    break
+            if found and found.is_file():
+                target = found
+            else:
+                raise HTTPException(status_code=404, detail="File not found")
+
+        category = req.category.lower()
+        if category == "movie":
+            movies_base = settings.get_destination_path("movie")
+            movie_title = req.title.strip()
+            year = req.year
+            y_m = re.search(r"\((19\d\d|20\d\d)\)", movie_title)
+            if y_m and not year:
+                year = int(y_m.group(1))
+                movie_title = re.sub(r"\s*\(\d{4}\)", "", movie_title).strip()
+            folder_name = f"{movie_title} ({year})" if year else movie_title
+            dest_dir = movies_base / folder_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / f"{folder_name}{target.suffix}"
+        elif category == "tv":
+            shows_base = settings.get_destination_path("tv")
+            show_name = req.title.strip()
+            season = req.season if req.season is not None else 1
+            episode = req.episode if req.episode is not None else 1
+            dest_dir = shows_base / show_name / f"Season {season:02d}"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / f"{show_name} - S{season:02d}E{episode:02d}{target.suffix}"
+        else:
+            dest_dir = settings.get_destination_path(category)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            final_dst = dest_dir / target.name
+
+        shutil.move(target, final_dst)
+        return {"status": "moved", "destination": str(final_dst)}
+
 
     @app.get("/api/settings")
     def get_settings_view():
@@ -1863,9 +2171,10 @@ def create_app(
           </label>
           <button class="btn btn-emerald" onclick="triggerRun(false)">⚡ Run Sort Now (Live)</button>
           <button class="btn btn-accent" onclick="triggerRun(true)">🔍 Preview Sort (Dry-Run)</button>
-          <button class="btn btn-amber" onclick="triggerRollback()">⏮ Rollback Batch</button>
+          <button class="btn btn-amber" onclick="triggerRollback()" title="Undo latest sorted batch">⏮ Undo Changes</button>
+          <button class="btn btn-outline" style="border-color: var(--amber); color: var(--amber);" onclick="triggerRollbackAll()" title="Undo all sorted changes">⏪ Undo All Changes</button>
           <button class="btn btn-outline" onclick="addSampleDownloads()">🧪 Add Test Samples</button>
-          <button class="btn btn-outline" style="border-color: var(--accent); color: var(--accent); font-weight: 700;" onclick="openSettingsModal()">⚙️ Settings</button>
+          <button class="btn btn-outline" style="border-color: var(--accent); color: var(--accent); font-weight: 700;" onclick="switchTab('settings')">⚙️ Settings & .env</button>
           <button class="btn btn-outline" onclick="handleUpdate()">🔄 Update</button>
         </div>
       </div>
@@ -1927,6 +2236,7 @@ def create_app(
       <div class="panel-header">
         <div class="panel-title">Activity & Batch History</div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-outline btn-sm" style="color: var(--amber); border-color: var(--amber);" onclick="triggerRollbackAll()">⏪ Undo All Changes</button>
           <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" onclick="clearBatchHistory()">🗑️ Clear History</button>
           <button class="btn btn-outline btn-sm" onclick="loadDashboard()">Refresh</button>
         </div>
@@ -2023,17 +2333,51 @@ def create_app(
   <!-- TAB 3: QUARANTINE REVIEW -->
   <div id="tab-quarantine" style="display: none;">
     <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">Review & Quarantine Queue</div>
-        <button class="btn btn-outline btn-sm" onclick="loadQuarantine()">Refresh</button>
+      <div class="panel-header" style="flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <div class="panel-title" style="display: flex; align-items: center; gap: 0.65rem;">
+            <span>🛡️ Review & Quarantine Queue</span>
+            <span id="quar-pending-count-badge" class="tag tag-quarantine" style="font-size: 0.8rem; display: none;">0</span>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.3rem;">
+            Files with confidence lower than your threshold are held safely here. Perform manual actions individually or using top buttons.
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-outline btn-sm" onclick="loadQuarantine()">🔄 Refresh</button>
+          <button class="btn btn-accent btn-sm" id="quar-btn-top-movie" onclick="handleTopQuarantineAction('movie')" title="Quick move selected (or all) quarantined files to Movies">🎬 Move to Movies</button>
+          <button class="btn btn-emerald btn-sm" id="quar-btn-top-tv" onclick="handleTopQuarantineAction('tv')" title="Quick move selected (or all) quarantined files to TV Shows">📺 Move to Shows</button>
+          <button class="btn btn-outline btn-sm" id="quar-btn-top-manual" onclick="handleTopQuarantineManual()" title="Manually specify title, season, or movie details">✏️ Set Show/Movie</button>
+          <button class="btn btn-outline btn-sm" id="quar-btn-top-unflag" style="color: var(--amber); border-color: var(--amber);" onclick="handleTopQuarantineUnflag()" title="Unflag selected (or all) items from quarantine">↩️ Unflag</button>
+          <button class="btn btn-outline btn-sm" id="quar-btn-top-undo-all" style="color: var(--rose); border-color: var(--rose); display: none;" onclick="undoAllResolvedQuarantine()" title="Undo all resolved items and restore files to source">↩️ Undo All Resolved</button>
+        </div>
       </div>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-        Files with confidence lower than your threshold are held safely here so you can review them and sort them into Movies or Shows with one click.
-      </p>
+
+      <!-- Batch Selection Toolbar -->
+      <div id="quar-selection-bar" style="display: none; justify-content: space-between; align-items: center; margin: 0 0 1rem 0; padding: 0.5rem 0.85rem; background: rgba(255,255,255,0.03); border-radius: 0.375rem; border: 1px solid var(--border); flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer; color: var(--text-title, #fff);">
+            <input type="checkbox" id="quar-select-all" onchange="toggleSelectAllQuarantine(this.checked)" style="accent-color: var(--accent); cursor: pointer;">
+            <span>Select All (<span id="quar-total-count-text">0</span>)</span>
+          </label>
+          <span id="quar-selected-badge" class="tag tag-movie" style="font-size: 0.75rem; display: none;">0 selected</span>
+        </div>
+        <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 0.2rem;">Batch Actions:</span>
+          <button class="btn btn-accent btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.65rem;" onclick="handleTopQuarantineAction('movie')">🎬 Move to Movies</button>
+          <button class="btn btn-emerald btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.65rem;" onclick="handleTopQuarantineAction('tv')">📺 Move to Shows</button>
+          <button class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.65rem;" onclick="handleTopQuarantineManual()">✏️ Set Show/Movie</button>
+          <button class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: var(--amber); border-color: var(--amber);" onclick="handleTopQuarantineUnflag()">↩️ Unflag</button>
+        </div>
+      </div>
+
       <div class="show-table-wrapper">
         <table>
           <thead>
             <tr>
+              <th style="width: 38px; text-align: center;">
+                <input type="checkbox" id="quar-th-checkbox" onchange="toggleSelectAllQuarantine(this.checked)" style="accent-color: var(--accent); cursor: pointer;" title="Select / Deselect all">
+              </th>
               <th>File Name</th>
               <th>Reason</th>
               <th>Confidence</th>
@@ -2042,9 +2386,37 @@ def create_app(
             </tr>
           </thead>
           <tbody id="quarantine-tbody">
-            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Quarantine queue is empty.</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Quarantine queue is empty. Flagged files will appear here without being moved.</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Recently Resolved Files Section with Undo All -->
+      <div id="quarantine-resolved-section" style="margin-top: 2rem; display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span>✅ Recently Resolved Files</span>
+            <span id="resolved-count-badge" class="tag tag-live">0</span>
+          </h4>
+          <button class="btn btn-amber btn-sm" onclick="undoAllResolvedQuarantine()" title="Undo all resolved items and move them back to their original source folders">↩️ Undo All Resolved</button>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+          Need to revert a resolved item? Click "Undo" on an individual item or "Undo All Resolved" above to restore files back to their source locations.
+        </p>
+        <div class="show-table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Category</th>
+                <th>Destination</th>
+                <th>Resolved Date</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="quarantine-resolved-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -2156,6 +2528,16 @@ def create_app(
           </p>
           <button type="button" class="btn btn-amber" style="width: 100%; justify-content: center;" onclick="triggerServerRestart()">
             🔄 Restart Media Sorter Server
+          </button>
+        </div>
+
+        <div style="border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.25rem;">
+          <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.5rem;">⏪ Undo All Changes (Rollback All)</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+            Restores all previously organized files across all batches back to their original source locations in downloads.
+          </p>
+          <button type="button" class="btn btn-outline" style="width: 100%; justify-content: center; color: var(--amber); border-color: var(--amber);" onclick="triggerRollbackAll()">
+            ⏪ Undo All Changes Now
           </button>
         </div>
 
@@ -2333,6 +2715,73 @@ def create_app(
     </div>
   </div>
 
+  <!-- MANUAL SORT / CATEGORIZE MODAL -->
+  <div id="modal-manual-sort" class="modal-backdrop" style="display: none;" onclick="if(event.target===this) closeManualModal()">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-header">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
+          <span>✏️ Manually Set Show / Movie</span>
+        </div>
+        <button class="modal-close" onclick="closeManualModal()">&times;</button>
+      </div>
+
+      <div id="manual-modal-file-select-container" style="display: none; margin-bottom: 1.25rem;">
+        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.75rem;">Select Quarantined File</label>
+        <select id="manual-modal-file-select" class="form-control" onchange="onManualModalFileSelectChange(this.value)"></select>
+      </div>
+
+      <div id="manual-modal-single-file-container" style="margin-bottom: 1.25rem;">
+        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.75rem;">Selected File</label>
+        <div id="manual-modal-filename" style="font-family: monospace; font-size: 0.85rem; padding: 0.6rem 0.85rem; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm); word-break: break-all; border: 1px solid var(--border);"></div>
+      </div>
+
+      <div style="margin-bottom: 1.25rem;">
+        <label class="form-label" style="margin-bottom: 0.4rem; font-size: 0.8rem;">Select Media Type</label>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" id="manual-btn-movie" class="btn btn-accent" style="flex: 1; justify-content: center; font-weight: 600;" onclick="toggleManualCat('movie')">🎬 Movie</button>
+          <button type="button" id="manual-btn-tv" class="btn btn-outline" style="flex: 1; justify-content: center; font-weight: 600;" onclick="toggleManualCat('tv')">📺 TV Show</button>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 1rem;">
+        <label class="form-label" id="manual-title-label">Movie Title <span style="color: var(--rose);">*</span></label>
+        <input type="text" class="form-control" id="manual-input-title" placeholder="e.g. Inception or The Dark Knight" oninput="updateManualPreview()">
+      </div>
+
+      <div id="manual-fields-movie" style="margin-bottom: 1rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">Release Year (Optional)</label>
+          <input type="number" class="form-control" id="manual-input-year" placeholder="e.g. 2010" min="1900" max="2099" oninput="updateManualPreview()">
+        </div>
+      </div>
+
+      <div id="manual-fields-tv" style="display: none; margin-bottom: 1rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Season Number</label>
+            <input type="number" class="form-control" id="manual-input-season" placeholder="1" min="1" max="999" value="1" oninput="updateManualPreview()">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Episode Number</label>
+            <input type="number" class="form-control" id="manual-input-episode" placeholder="1" min="1" max="999" value="1" oninput="updateManualPreview()">
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1.25rem;">
+        <label class="form-label" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Destination Preview</label>
+        <div id="manual-modal-preview" style="font-family: monospace; font-size: 0.8rem; color: var(--emerald); padding: 0.6rem 0.85rem; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm); word-break: break-all; border: 1px dashed var(--border);">
+          Enter title above to preview destination...
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 1rem;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="closeManualModal()">Cancel</button>
+        <button type="button" class="btn btn-emerald btn-sm" id="manual-submit-btn" onclick="submitManualResolution()">⚡ Organize File</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script>
@@ -2400,10 +2849,7 @@ def create_app(
     }
 
     function openSettingsModal() {
-      const modal = document.getElementById('modal-settings');
-      if (modal) modal.style.display = 'flex';
-      const cur = localStorage.getItem('ms-theme') || 'cyber-dark';
-      setTheme(cur);
+      switchTab('settings');
     }
 
     function closeSettingsModal() {
@@ -2570,6 +3016,22 @@ def create_app(
       }
     }
 
+    async function triggerRollbackAll() {
+      if (!confirm('Roll back ALL sorted batches and restore all organized files back to downloads?')) return;
+      try {
+        const res = await fetch('/api/rollback/all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        showToast(`Rollback all complete: ${data.reverted_files} files restored to source!`);
+        loadDashboard();
+        loadFiles();
+      } catch (e) {
+        showToast('Error executing rollback all: ' + e);
+      }
+    }
+
     async function deleteDownloadFile(filename) {
       if (!confirm(`Permanently delete "${filename}" from downloads?`)) return;
       try {
@@ -2651,13 +3113,218 @@ def create_app(
       });
     }
 
+    let currentManualContext = null;
+    let manualCategory = 'movie';
+    let currentQuarantinePending = [];
+    let currentExplorerSingles = [];
+    let currentExplorerShows = [];
+
+    function openManualModalByIndex(type, idx, fIdx) {
+      if (type === 'quarantine') {
+        const item = currentQuarantinePending[idx];
+        if (item) openManualModal('quarantine', item);
+      } else if (type === 'singles') {
+        const item = currentExplorerSingles[idx];
+        if (item) openManualModal('files', item);
+      } else if (type === 'show') {
+        const show = currentExplorerShows[idx];
+        if (show && show.files && show.files[fIdx]) {
+          const f = show.files[fIdx];
+          openManualModal('files', {
+            relative_path: f.relative_path || f.name,
+            name: f.name,
+            detected_type: 'tv',
+            believed_title: show.show_name,
+            season: f.season !== null && f.season !== undefined ? f.season : 1,
+            episode: f.episode !== null && f.episode !== undefined ? f.episode : 1,
+          });
+        }
+      }
+    }
+
+    function openManualModal(contextType, data) {
+      currentManualContext = { type: contextType, data: data };
+      const modal = document.getElementById('modal-manual-sort');
+      const filenameElem = document.getElementById('manual-modal-filename');
+      const titleInput = document.getElementById('manual-input-title');
+      const yearInput = document.getElementById('manual-input-year');
+      const seasonInput = document.getElementById('manual-input-season');
+      const episodeInput = document.getElementById('manual-input-episode');
+
+      const fileName = data.filename || data.name || (data.relative_path ? data.relative_path.split('/').pop() : 'Unknown File');
+      if (filenameElem) filenameElem.textContent = fileName;
+
+      const fileSelectContainer = document.getElementById('manual-modal-file-select-container');
+      const fileSingleContainer = document.getElementById('manual-modal-single-file-container');
+      const fileSelect = document.getElementById('manual-modal-file-select');
+
+      if (contextType === 'quarantine' && currentQuarantinePending && currentQuarantinePending.length > 1) {
+        if (fileSelectContainer) fileSelectContainer.style.display = 'block';
+        if (fileSingleContainer) fileSingleContainer.style.display = 'none';
+        if (fileSelect) {
+          fileSelect.innerHTML = currentQuarantinePending.map((p, i) =>
+            `<option value="${i}" ${p.id === data.id ? 'selected' : ''}>${escapeHtml(p.filename)}</option>`
+          ).join('');
+        }
+      } else {
+        if (fileSelectContainer) fileSelectContainer.style.display = 'none';
+        if (fileSingleContainer) fileSingleContainer.style.display = 'block';
+      }
+
+      const initialCat = (data.suggested_category || data.detected_type || 'movie').toLowerCase();
+      toggleManualCat(initialCat === 'tv' || initialCat === 'show' ? 'tv' : 'movie');
+
+      let initTitle = data.believed_title || '';
+      if (!initTitle && fileName) {
+        initTitle = fileName.replace(/\.[^/.]+$/, '').replace(/[._]/g, ' ').trim();
+      }
+      if (titleInput) titleInput.value = initTitle;
+      if (yearInput) yearInput.value = data.year || '';
+      if (seasonInput) seasonInput.value = data.season !== undefined && data.season !== null ? data.season : 1;
+      if (episodeInput) episodeInput.value = data.episode !== undefined && data.episode !== null ? data.episode : 1;
+
+      updateManualPreview();
+      if (modal) modal.style.display = 'flex';
+      setTimeout(() => { if (titleInput) titleInput.focus(); }, 80);
+    }
+
+    function onManualModalFileSelectChange(idxStr) {
+      const idx = parseInt(idxStr, 10);
+      if (!isNaN(idx) && currentQuarantinePending && currentQuarantinePending[idx]) {
+        openManualModal('quarantine', currentQuarantinePending[idx]);
+      }
+    }
+
+    function closeManualModal() {
+      const modal = document.getElementById('modal-manual-sort');
+      if (modal) modal.style.display = 'none';
+      currentManualContext = null;
+    }
+
+    function toggleManualCat(cat) {
+      manualCategory = cat;
+      const movieBtn = document.getElementById('manual-btn-movie');
+      const tvBtn = document.getElementById('manual-btn-tv');
+      const movieFields = document.getElementById('manual-fields-movie');
+      const tvFields = document.getElementById('manual-fields-tv');
+      const titleLabel = document.getElementById('manual-title-label');
+
+      if (cat === 'movie') {
+        if (movieBtn) { movieBtn.className = 'btn btn-accent'; }
+        if (tvBtn) { tvBtn.className = 'btn btn-outline'; }
+        if (movieFields) movieFields.style.display = 'block';
+        if (tvFields) tvFields.style.display = 'none';
+        if (titleLabel) titleLabel.innerHTML = 'Movie Title <span style="color: var(--rose);">*</span>';
+      } else {
+        if (movieBtn) { movieBtn.className = 'btn btn-outline'; }
+        if (tvBtn) { tvBtn.className = 'btn btn-emerald'; }
+        if (movieFields) movieFields.style.display = 'none';
+        if (tvFields) tvFields.style.display = 'block';
+        if (titleLabel) titleLabel.innerHTML = 'TV Show / Series Name <span style="color: var(--rose);">*</span>';
+      }
+      updateManualPreview();
+    }
+
+    function updateManualPreview() {
+      const previewElem = document.getElementById('manual-modal-preview');
+      if (!previewElem || !currentManualContext) return;
+
+      const title = (document.getElementById('manual-input-title').value || '').trim();
+      const fileName = currentManualContext.data.filename || currentManualContext.data.name || (currentManualContext.data.relative_path ? currentManualContext.data.relative_path.split('/').pop() : 'file.mkv');
+      const ext = fileName.includes('.') ? '.' + fileName.split('.').pop() : '';
+
+      if (!title) {
+        previewElem.textContent = 'Enter title above to preview destination...';
+        return;
+      }
+
+      if (manualCategory === 'movie') {
+        const year = document.getElementById('manual-input-year').value.trim();
+        const folder = year ? `${title} (${year})` : title;
+        previewElem.textContent = `Movies / ${folder} / ${folder}${ext}`;
+      } else {
+        const season = parseInt(document.getElementById('manual-input-season').value, 10) || 1;
+        const episode = parseInt(document.getElementById('manual-input-episode').value, 10) || 1;
+        const sStr = String(season).padStart(2, '0');
+        const eStr = String(episode).padStart(2, '0');
+        previewElem.textContent = `TV Shows / ${title} / Season ${sStr} / ${title} - S${sStr}E${eStr}${ext}`;
+      }
+    }
+
+    async function submitManualResolution() {
+      if (!currentManualContext) return;
+      const title = (document.getElementById('manual-input-title').value || '').trim();
+      if (!title) {
+        alert('Please enter a title or show name.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('manual-submit-btn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Organizing...';
+      }
+
+      const payload = {
+        category: manualCategory,
+        title: title,
+        year: manualCategory === 'movie' ? (parseInt(document.getElementById('manual-input-year').value, 10) || null) : null,
+        season: manualCategory === 'tv' ? (parseInt(document.getElementById('manual-input-season').value, 10) || 1) : null,
+        episode: manualCategory === 'tv' ? (parseInt(document.getElementById('manual-input-episode').value, 10) || 1) : null,
+      };
+
+      try {
+        if (currentManualContext.type === 'quarantine') {
+          const res = await fetch(`/api/quarantine/${currentManualContext.data.id}/resolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Resolution failed');
+          showToast(`Moved to ${data.destination || (manualCategory === 'movie' ? 'Movies' : 'TV Shows')}!`);
+          closeManualModal();
+          loadQuarantine();
+          loadFiles();
+          loadDashboard();
+        } else if (currentManualContext.type === 'files') {
+          payload.relative_path = currentManualContext.data.relative_path || currentManualContext.data.name;
+          const res = await fetch('/api/files/manual-sort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Manual sort failed');
+          showToast(`Organized: ${data.destination}!`);
+          closeManualModal();
+          loadFiles();
+          loadDashboard();
+        }
+      } catch (err) {
+        showToast('Error: ' + err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '⚡ Organize File';
+        }
+      }
+    }
+
     function renderDownloadsExplorer(downloads) {
       const pathElem = document.getElementById('path-downloads');
       if (pathElem) pathElem.textContent = downloads.path || '';
 
-      const totalFiles = downloads.total_files || (downloads.files ? downloads.files.length : 0);
-      const shows = downloads.shows || [];
-      const singles = downloads.singles || [];
+      const allFiles = (downloads.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+      const totalFiles = downloads.total_files !== undefined ? downloads.total_files : allFiles.length;
+      const shows = (downloads.shows || []).map(s => {
+        const filteredFiles = (s.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+        return { ...s, files: filteredFiles, count: filteredFiles.length };
+      }).filter(s => s.count > 0);
+      const singles = (downloads.singles || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+
+      currentExplorerShows = shows;
+      currentExplorerSingles = singles;
 
       const totalBadge = document.getElementById('downloads-total-badge');
       if (totalBadge) totalBadge.textContent = `${totalFiles} file${totalFiles === 1 ? '' : 's'}`;
@@ -2766,7 +3433,7 @@ def create_app(
 
           // Populate file rows
           const tbody = card.querySelector(`#tbody-show-${idx}`);
-          show.files.forEach(f => {
+          show.files.forEach((f, fIdx) => {
             const tr = document.createElement('tr');
             let seText = '-';
             if (f.season !== null && f.season !== undefined && f.episode !== null && f.episode !== undefined) {
@@ -2787,7 +3454,10 @@ def create_app(
               <td>${seBadge}</td>
               <td>${escapeHtml(f.size)}</td>
               <td>
-                <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="btn btn-outline btn-sm" title="Manually set show or movie details" onclick="openManualModalByIndex('show', ${idx}, ${fIdx})">✏️ Set Show/Movie</button>
+                  <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
+                </div>
               </td>
             `;
             tbody.appendChild(tr);
@@ -2802,7 +3472,7 @@ def create_app(
           const singlesBadge = document.getElementById('singles-count-badge');
           if (singlesBadge) singlesBadge.textContent = `${singles.length} file${singles.length === 1 ? '' : 's'}`;
           singlesTbody.innerHTML = '';
-          singles.forEach(f => {
+          singles.forEach((f, idx) => {
             const tr = document.createElement('tr');
             const typeTag = f.detected_type === 'movie' ? '<span class="tag tag-movie">MOVIE</span>' : '<span class="tag tag-dry">FILE</span>';
             const delTarget = f.relative_path || f.name;
@@ -2815,7 +3485,10 @@ def create_app(
               <td><strong style="color: var(--text-title, #fff);">${escapeHtml(f.believed_title || f.name)}</strong></td>
               <td>${escapeHtml(f.size)}</td>
               <td>
-                <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="btn btn-outline btn-sm" title="Manually set show or movie details" onclick="openManualModalByIndex('singles', ${idx})">✏️ Set Show/Movie</button>
+                  <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
+                </div>
               </td>
             `;
             singlesTbody.appendChild(tr);
@@ -2839,32 +3512,288 @@ def create_app(
     async function loadQuarantine() {
       try {
         const res = await fetch('/api/quarantine');
-        const items = await res.json();
+        const data = await res.json();
+        const pending = Array.isArray(data) ? data : (data.pending || []);
+        const resolved = data.resolved || [];
+        currentQuarantinePending = pending;
+
         const tbody = document.getElementById('quarantine-tbody');
         tbody.innerHTML = '';
-        if (items.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Quarantine queue is empty.</td></tr>';
-          document.getElementById('quar-badge').style.display = 'none';
+        const quarBadge = document.getElementById('quar-badge');
+        const quarPendingBadge = document.getElementById('quar-pending-count-badge');
+        const quarSelectionBar = document.getElementById('quar-selection-bar');
+        const quarTotalCountText = document.getElementById('quar-total-count-text');
+        const topUndoAllBtn = document.getElementById('quar-btn-top-undo-all');
+
+        if (quarTotalCountText) quarTotalCountText.textContent = pending.length;
+
+        if (pending.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Quarantine queue is empty. Flagged files will appear here without being moved.</td></tr>';
+          if (quarBadge) quarBadge.style.display = 'none';
+          if (quarPendingBadge) quarPendingBadge.style.display = 'none';
+          if (quarSelectionBar) quarSelectionBar.style.display = 'none';
         } else {
-          document.getElementById('quar-badge').textContent = items.length;
-          document.getElementById('quar-badge').style.display = 'inline-block';
-          items.forEach(q => {
+          if (quarBadge) {
+            quarBadge.textContent = pending.length;
+            quarBadge.style.display = 'inline-block';
+          }
+          if (quarPendingBadge) {
+            quarPendingBadge.textContent = `${pending.length} pending`;
+            quarPendingBadge.style.display = 'inline-block';
+          }
+          if (quarSelectionBar) {
+            quarSelectionBar.style.display = 'flex';
+          }
+
+          pending.forEach((q, idx) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-              <td><code>${q.filename}</code></td>
-              <td style="color: var(--rose);">${q.reason}</td>
-              <td>${q.confidence}%</td>
-              <td>${q.created_at || '-'}</td>
+              <td style="text-align: center;">
+                <input type="checkbox" class="quar-item-checkbox" value="${q.id}" data-idx="${idx}" onchange="updateQuarantineSelection()" style="accent-color: var(--accent); cursor: pointer;">
+              </td>
               <td>
-                <button class="btn btn-accent btn-sm" onclick="resolveItem(${q.id}, 'movie')">🎬 Movie</button>
-                <button class="btn btn-emerald btn-sm" onclick="resolveItem(${q.id}, 'tv')">📺 Show</button>
+                <code>${escapeHtml(q.filename)}</code>
+                <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(q.src)}</div>
+              </td>
+              <td style="color: var(--rose); font-weight: 500;">${escapeHtml(q.reason)}</td>
+              <td><span class="tag ${q.confidence >= 70 ? 'tag-movie' : 'tag-dry'}">${q.confidence}%</span></td>
+              <td style="font-size: 0.8rem; color: var(--text-muted);">${q.created_at || '-'}</td>
+              <td>
+                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                  <button class="btn btn-accent btn-sm" onclick="resolveItem(${q.id}, 'movie')" title="Quick move to Movies">🎬 Movie</button>
+                  <button class="btn btn-emerald btn-sm" onclick="resolveItem(${q.id}, 'tv')" title="Quick move to TV Shows">📺 Show</button>
+                  <button class="btn btn-outline btn-sm" onclick="openManualModalByIndex('quarantine', ${idx})" title="Customize title, season, episode">✏️ Set Show/Movie</button>
+                  <button class="btn btn-outline btn-sm" style="color: var(--amber); border-color: var(--amber);" onclick="undoQuarantine(${q.id})" title="Unflag / dismiss from quarantine">↩️ Unflag</button>
+                </div>
               </td>
             `;
             tbody.appendChild(tr);
           });
         }
+
+        updateQuarantineSelection();
+
+        // Render Resolved Section & Top Undo All Button
+        const resolvedSection = document.getElementById('quarantine-resolved-section');
+        const resolvedTbody = document.getElementById('quarantine-resolved-tbody');
+        const resolvedBadge = document.getElementById('resolved-count-badge');
+
+        if (topUndoAllBtn) {
+          topUndoAllBtn.style.display = resolved.length > 0 ? 'inline-flex' : 'none';
+        }
+
+        if (resolvedTbody) {
+          resolvedTbody.innerHTML = '';
+          if (resolved.length > 0) {
+            if (resolvedSection) resolvedSection.style.display = 'block';
+            if (resolvedBadge) resolvedBadge.textContent = `${resolved.length} resolved`;
+            resolved.forEach(r => {
+              const tr = document.createElement('tr');
+              const catTag = r.category === 'tv' ? '<span class="tag tag-show">TV SHOW</span>' : '<span class="tag tag-movie">MOVIE</span>';
+              tr.innerHTML = `
+                <td>
+                  <code>${escapeHtml(r.resolved_filename || r.filename)}</code>
+                  <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(r.src)}</div>
+                </td>
+                <td>${catTag}</td>
+                <td><code style="font-size:0.75rem; color:var(--emerald); word-break:break-all;">${escapeHtml(r.resolved_path || '-')}</code></td>
+                <td style="font-size:0.8rem; color:var(--text-muted);">${r.resolved_at || '-'}</td>
+                <td>
+                  <button class="btn btn-amber btn-sm" onclick="undoQuarantine(${r.id})" title="Restore file back to original source folder and re-flag in review queue">↩ Undo</button>
+                </td>
+              `;
+              resolvedTbody.appendChild(tr);
+            });
+          } else {
+            if (resolvedSection) resolvedSection.style.display = 'none';
+          }
+        }
       } catch (e) {
         console.error(e);
+      }
+    }
+
+    function getSelectedQuarantineIds() {
+      const cbs = document.querySelectorAll('.quar-item-checkbox:checked');
+      return Array.from(cbs).map(cb => parseInt(cb.value, 10));
+    }
+
+    function updateQuarantineSelection() {
+      const selected = getSelectedQuarantineIds();
+      const total = currentQuarantinePending ? currentQuarantinePending.length : 0;
+      const badge = document.getElementById('quar-selected-badge');
+      const countText = document.getElementById('quar-total-count-text');
+      const selectAll = document.getElementById('quar-select-all');
+      const thCheckbox = document.getElementById('quar-th-checkbox');
+
+      if (countText) countText.textContent = total;
+
+      if (badge) {
+        if (selected.length > 0) {
+          badge.textContent = `${selected.length} selected`;
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+
+      if (selectAll) selectAll.checked = total > 0 && selected.length === total;
+      if (thCheckbox) thCheckbox.checked = total > 0 && selected.length === total;
+
+      const movieBtn = document.getElementById('quar-btn-top-movie');
+      const tvBtn = document.getElementById('quar-btn-top-tv');
+      const unflagBtn = document.getElementById('quar-btn-top-unflag');
+      if (selected.length > 0) {
+        if (movieBtn) movieBtn.textContent = `🎬 Move to Movies (${selected.length})`;
+        if (tvBtn) tvBtn.textContent = `📺 Move to Shows (${selected.length})`;
+        if (unflagBtn) unflagBtn.textContent = `↩️ Unflag (${selected.length})`;
+      } else {
+        if (movieBtn) movieBtn.textContent = '🎬 Move to Movies';
+        if (tvBtn) tvBtn.textContent = '📺 Move to Shows';
+        if (unflagBtn) unflagBtn.textContent = '↩️ Unflag';
+      }
+    }
+
+    function toggleSelectAllQuarantine(checked) {
+      const cbs = document.querySelectorAll('.quar-item-checkbox');
+      cbs.forEach(cb => { cb.checked = checked; });
+      const selectAll = document.getElementById('quar-select-all');
+      const thCheckbox = document.getElementById('quar-th-checkbox');
+      if (selectAll) selectAll.checked = checked;
+      if (thCheckbox) thCheckbox.checked = checked;
+      updateQuarantineSelection();
+    }
+
+    async function handleTopQuarantineAction(category) {
+      if (!currentQuarantinePending || currentQuarantinePending.length === 0) {
+        showToast('Quarantine queue is empty.');
+        return;
+      }
+
+      const selectedIds = getSelectedQuarantineIds();
+      const catName = category === 'movie' ? 'Movies' : 'TV Shows';
+      let idsToSend = null;
+
+      if (selectedIds.length > 0) {
+        idsToSend = selectedIds;
+      } else {
+        const msg = currentQuarantinePending.length === 1
+          ? `Move "${currentQuarantinePending[0].filename}" to ${catName}?`
+          : `Move all ${currentQuarantinePending.length} pending quarantine files to ${catName}?`;
+        if (!confirm(msg)) return;
+      }
+
+      try {
+        const res = await fetch('/api/quarantine/bulk-resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_ids: idsToSend,
+            category: category
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Resolution failed');
+        showToast(`Moved ${data.resolved_count} file(s) to ${catName}!`);
+        loadQuarantine();
+        loadFiles();
+        loadDashboard();
+      } catch (e) {
+        showToast('Error: ' + e.message);
+      }
+    }
+
+    async function handleTopQuarantineUnflag() {
+      if (!currentQuarantinePending || currentQuarantinePending.length === 0) {
+        showToast('Quarantine queue is empty.');
+        return;
+      }
+
+      const selectedIds = getSelectedQuarantineIds();
+      let idsToSend = null;
+
+      if (selectedIds.length > 0) {
+        if (!confirm(`Unflag ${selectedIds.length} selected item(s) from quarantine?`)) return;
+        idsToSend = selectedIds;
+      } else {
+        const msg = currentQuarantinePending.length === 1
+          ? `Unflag "${currentQuarantinePending[0].filename}" from quarantine?`
+          : `Unflag all ${currentQuarantinePending.length} pending items from quarantine?`;
+        if (!confirm(msg)) return;
+      }
+
+      try {
+        const res = await fetch('/api/quarantine/bulk-undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_ids: idsToSend,
+            scope: 'pending'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Unflag failed');
+        showToast(`Unflagged ${data.undone_count} item(s)!`);
+        loadQuarantine();
+        loadFiles();
+        loadDashboard();
+      } catch (e) {
+        showToast('Error: ' + e.message);
+      }
+    }
+
+    function handleTopQuarantineManual() {
+      if (!currentQuarantinePending || currentQuarantinePending.length === 0) {
+        showToast('No pending quarantine items to configure.');
+        return;
+      }
+      const checked = document.querySelectorAll('.quar-item-checkbox:checked');
+      if (checked.length > 0) {
+        const idx = parseInt(checked[0].getAttribute('data-idx'), 10);
+        openManualModalByIndex('quarantine', idx);
+      } else {
+        openManualModalByIndex('quarantine', 0);
+      }
+    }
+
+    async function undoAllResolvedQuarantine() {
+      if (!confirm('Undo all resolved quarantine items and restore files back to their source folders?')) return;
+      try {
+        const res = await fetch('/api/quarantine/bulk-undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: 'resolved'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Undo failed');
+        showToast(`Reverted ${data.undone_count} resolved file(s) back to source folders!`);
+        loadQuarantine();
+        loadFiles();
+        loadDashboard();
+      } catch (e) {
+        showToast('Error: ' + e.message);
+      }
+    }
+
+    async function undoQuarantine(id) {
+      if (!confirm('Revert this quarantine item? If resolved, the file will be moved back to its source location.')) return;
+      try {
+        const res = await fetch(`/api/quarantine/${id}/undo`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          showToast('Quarantine item reverted successfully!');
+          loadQuarantine();
+          loadFiles();
+          loadDashboard();
+        } else {
+          const err = await res.json();
+          showToast('Failed to undo: ' + (err.detail || 'Unknown error'));
+        }
+      } catch (e) {
+        showToast('Error: ' + e);
       }
     }
 
@@ -2878,6 +3807,7 @@ def create_app(
         showToast(`Moved to ${category === 'movie' ? 'Movies' : 'Shows'} folder!`);
         loadQuarantine();
         loadFiles();
+        loadDashboard();
       } catch (e) {
         showToast('Error: ' + e);
       }

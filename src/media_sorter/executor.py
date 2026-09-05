@@ -573,6 +573,20 @@ class MediaExecutor:
         self.session.commit()
         return reverted_count
 
+    def rollback_all(self) -> int:
+        """Roll back ALL completed, non-rolled-back batches in reverse chronological order."""
+        batches = (
+            self.session.query(BatchRecord)
+            .filter(BatchRecord.status != "ROLLED_BACK", BatchRecord.dry_run == False)
+            .order_by(BatchRecord.created_at.desc())
+            .all()
+        )
+        total_reverted = 0
+        for batch in batches:
+            total_reverted += self.rollback_batch(batch.id)
+        return total_reverted
+
+
     def recover_interrupted_batches(self) -> int:
         """Clean up orphaned temp files and mark interrupted operations as FAILED."""
         in_progress_ops = (
@@ -594,15 +608,25 @@ class MediaExecutor:
         return recovered_count
 
     def clean_empty_directories(self, moved_src_paths: List[Path]) -> int:
-        """Remove empty parent directories in source folders after moving files.
+        """Remove empty parent directories and delete .txt / junk files in source folders after moving files.
         
         Ascends from moved file parent folders up to, but never removing, the source root directories.
+        Also removes companion or orphaned .txt files left behind in source folders.
         """
         source_roots = {p.resolve() for p in self.settings.get_source_paths()}
         # Also include any parent roots if configured
         candidate_dirs: Set[Path] = set()
         for src in moved_src_paths:
             try:
+                # Delete companion .txt file (e.g. Movie.txt alongside Movie.mkv)
+                comp = src.with_suffix(".txt")
+                if comp.is_file():
+                    try:
+                        comp.unlink()
+                        logger.info("Deleted companion .txt file during cleanup", file=str(comp))
+                    except Exception:
+                        pass
+
                 parent = src.resolve().parent
                 while parent not in source_roots and any(parent.is_relative_to(root) for root in source_roots):
                     candidate_dirs.add(parent)
@@ -621,10 +645,19 @@ class MediaExecutor:
             if d in source_roots:
                 continue
             try:
-                # Check if directory contains any remaining files or subdirs (ignoring OS junk)
+                # Delete any .txt files in candidate directories during cleanup
+                for child in list(d.iterdir()):
+                    if child.is_file() and child.name.lower().endswith(".txt"):
+                        try:
+                            child.unlink()
+                            logger.info("Deleted .txt file during cleanup", file=str(child))
+                        except Exception:
+                            pass
+
+                # Check if directory contains any remaining files or subdirs (ignoring OS junk and .txt files)
                 entries = [
                     e for e in d.iterdir()
-                    if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini")
+                    if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini") and not e.name.lower().endswith(".txt")
                 ]
                 if not entries:
                     # Clean up junk files before rmdir
@@ -638,5 +671,19 @@ class MediaExecutor:
                     logger.info("Cleaned up empty source directory", directory=str(d))
             except (OSError, PermissionError) as e:
                 logger.debug("Could not remove directory (not empty or permissions issue)", directory=str(d), error=str(e))
+
+        # Also clean up any .txt files left in source roots
+        for root in source_roots:
+            if root.exists() and root.is_dir():
+                try:
+                    for child in list(root.iterdir()):
+                        if child.is_file() and child.name.lower().endswith(".txt"):
+                            try:
+                                child.unlink()
+                                logger.info("Deleted .txt file in source root during cleanup", file=str(child))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
         return removed_count

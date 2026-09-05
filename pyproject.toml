@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "media-sorter"
-version = "1.0.4"
+version = "1.0.5"
 description = "High‑performance reliable media sorter"
 authors = ["Jadon <jadon@example.com>"]
 license = "MIT"

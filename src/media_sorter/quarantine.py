@@ -69,6 +69,51 @@ class QuarantineManager:
         self.session.commit()
         return True
 
+    def undo_item(self, item_id: int) -> bool:
+        """Undo the resolution or quarantine status of an item.
+        
+        If resolved and file was moved, moves the file back to its original src location
+        and resets status to PENDING. If already pending, unflags/removes from quarantine.
+        """
+        import os
+        import shutil
+        rec = self.get_by_id(item_id)
+        if not rec:
+            return False
+
+        if rec.status == QuarantineStatus.RESOLVED.value and rec.resolved_path:
+            dst_path = Path(rec.resolved_path)
+            src_path = Path(rec.src)
+            if dst_path.exists():
+                src_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.move(dst_path, src_path)
+                    logger.info("Restored resolved quarantine file back to src", src=str(src_path), dst=str(dst_path))
+                except Exception as e:
+                    logger.error("Failed restoring quarantine file to src", src=str(src_path), dst=str(dst_path), error=str(e))
+            rec.status = QuarantineStatus.PENDING.value
+            rec.resolved_path = None
+            rec.resolved_at = None
+            self.session.commit()
+            return True
+        elif rec.status == QuarantineStatus.PENDING.value:
+            # Unflag pending quarantine item
+            self.session.delete(rec)
+            self.session.commit()
+            return True
+
+        return False
+
+    def list_resolved(self, limit: int = 50) -> List[QuarantineRecord]:
+        """Return recently resolved quarantine items."""
+        return (
+            self.session.query(QuarantineRecord)
+            .filter_by(status=QuarantineStatus.RESOLVED.value)
+            .order_by(QuarantineRecord.resolved_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     def get_statistics(self) -> Dict[str, int]:
         """Summarize quarantine records by status."""
         total = self.session.query(QuarantineRecord).count()

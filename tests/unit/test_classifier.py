@@ -235,3 +235,50 @@ def test_classify_archive(classifier):
     res = classifier.classify(scanned, tokens, meta)
     assert res.category == "archive"
     assert res.confidence >= 0.90
+
+
+def test_classify_movie_with_hdtv_and_rartv(classifier):
+    scanned = ScannedFile(path=Path("/downloads/Gladiator.II.2024.1080p.HDTV.x264-[rartv].mkv"), size=4000000000, mtime=1000.0)
+    tokens = TokenizedFilename(
+        raw_name="Gladiator.II.2024.1080p.HDTV.x264-[rartv].mkv",
+        title="Gladiator II",
+        year=2024,
+        resolution="1080p",
+        video_codec="x264",
+        source="HDTV",
+        group="rartv",
+    )
+    meta = MediaMetadata(
+        path=scanned.path,
+        mime_type="video/x-matroska",
+        container="mkv",
+        duration_seconds=5000,  # ~83 minutes
+        has_video=True,
+    )
+    res = classifier.classify(scanned, tokens, meta)
+    assert res.category == "movie"
+    assert res.confidence >= 0.75
+    assert res.needs_quarantine is False
+
+
+def test_classify_movie_with_apple_tv_tag(classifier):
+    scanned = ScannedFile(path=Path("/downloads/Wolfs.2024.1080p.Apple.TV.WEB-DL.DDP5.1.Atmos.H.264.mkv"), size=4500000000, mtime=1000.0)
+    tokens = TokenizedFilename(
+        raw_name="Wolfs.2024.1080p.Apple.TV.WEB-DL.DDP5.1.Atmos.H.264.mkv",
+        title="Wolfs",
+        year=2024,
+        resolution="1080p",
+        video_codec="H.264",
+        source="WEB-DL",
+    )
+    meta = MediaMetadata(
+        path=scanned.path,
+        mime_type="video/x-matroska",
+        container="mkv",
+        duration_seconds=6400,
+        has_video=True,
+    )
+    res = classifier.classify(scanned, tokens, meta)
+    assert res.category == "movie"
+    assert res.confidence >= 0.75
+

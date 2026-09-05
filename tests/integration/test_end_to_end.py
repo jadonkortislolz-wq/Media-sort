@@ -84,9 +84,13 @@ def test_end_to_end_pipeline(library_environment):
     photo_dest_dir = organized / "Photos/2025/2025-06"
     assert photo_dest_dir.exists()
 
-    # Verify Quarantine of unknown/low confidence file
-    quar_dir = organized / "Quarantine"
-    assert quar_dir.exists()
+    # Verify Quarantine of unknown/low confidence file (flagged in place, not moved)
+    assert junk_file.exists()
+    from media_sorter.quarantine import QuarantineManager
+    with get_db_session(engine) as s:
+        qm = QuarantineManager(s)
+        pending = qm.list_pending()
+        assert any("unrecognized_sample.xyz" in q.src for q in pending)
 
     # 4. Third Step: Rollback
     reverted = sorter.rollback(live_report.batch_id)

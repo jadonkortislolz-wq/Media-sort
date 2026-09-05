@@ -42,7 +42,8 @@ exclude_patterns = [
     "Thumbs.db",
     "desktop.ini",
     "@eaDir",
-    "$RECYCLE.BIN"
+    "$RECYCLE.BIN",
+    "*.txt"
 ]
 
 [templates]

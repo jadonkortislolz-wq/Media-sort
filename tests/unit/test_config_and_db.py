@@ -13,6 +13,14 @@ def test_settings_defaults():
     assert settings.general.action == ActionType.MOVE
     assert settings.conflicts.policy == ConflictPolicy.RENAME_UNIQUE
     assert settings.conflicts.allow_overwrite is False
+    assert "*.txt" in settings.filters.exclude_patterns
+
+    from media_sorter.scanner import Scanner
+    scanner = Scanner()
+    assert "*.txt" in scanner.exclude_patterns
+    assert not scanner._matches_filter("info.txt")
+    assert not scanner._matches_filter("README.TXT")
+    assert scanner._matches_filter("movie.mkv")
 
 
 def test_load_yaml_config(tmp_path: Path):

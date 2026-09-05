@@ -16,12 +16,12 @@ from typing import Dict, List, Optional, Tuple
 RE_SEASON_EPISODE = re.compile(
     r"""(?ix)
     (?:
-        s(?P<season>\d{1,2})[\.\s_-]*e(?P<episode>\d{1,3})
-        (?:[\.\s_-]*(?:e|x|-)(?P<episode_end>\d{1,3}))? # multi-episode like S01E01-E02
+        (?<![0-9a-z])s(?P<season>\d{1,2})[\.\s_-]*e(?P<episode>\d{1,3})
+        (?:[\.\s_-]*(?:e|x|-)(?P<episode_end>\d{1,3}))?(?![0-9]) # multi-episode like S01E01-E02
     |
-        (?P<season_x>\d{1,2})x(?P<episode_x>\d{1,3})
+        (?<![0-9a-z])(?P<season_x>\d{1,2})x(?!(?:264|265|vid|hevc|avc))(?P<episode_x>\d{1,3})(?![0-9])
     |
-        season[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*episode[\.\s_-]*(?P<episode_word>\d{1,3})
+        \bseason[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*episode[\.\s_-]*(?P<episode_word>\d{1,3})\b
     )
     """
 )
@@ -41,6 +41,7 @@ RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 # Technical specs
 RE_RESOLUTION = re.compile(r"\b(2160p|4k|1080p|1080i|720p|576p|480p)\b", re.IGNORECASE)
+RE_DIMENSIONS = re.compile(r"\b(?:\d{3,4})x(?P<height>2160|1080|720|576|480)\b", re.IGNORECASE)
 RE_SOURCE = re.compile(r"\b(bluray|blu-ray|bdrip|web-dl|webrip|web|hdtv|dvdrip|dvd|remux)\b", re.IGNORECASE)
 RE_VIDEO_CODEC = re.compile(r"\b(x265|x264|h\.?265|h\.?264|hevc|avc|av1|xvid|divx)\b", re.IGNORECASE)
 RE_AUDIO_CODEC = re.compile(r"\b(truehd|atmos|dts-hd|dts|flac|aac|ac3|ddp?5\.1|mp3)\b", re.IGNORECASE)
@@ -108,6 +109,10 @@ class FilenameTokenizer:
             tokens.resolution = res_m.group(1).lower()
             if tokens.resolution == "4k":
                 tokens.resolution = "2160p"
+        else:
+            dim_m = RE_DIMENSIONS.search(stem)
+            if dim_m:
+                tokens.resolution = f"{dim_m.group('height')}p"
 
         src_m = RE_SOURCE.search(stem)
         if src_m:
@@ -132,13 +137,23 @@ class FilenameTokenizer:
         # 3. Check for Anime format
         anime_m = RE_ANIME_RELEASE.match(stem)
         if anime_m:
-            tokens.is_anime = True
-            tokens.group = anime_m.group("group").strip()
-            tokens.title = self._clean_title(anime_m.group("title"))
-            tokens.episode = int(anime_m.group("episode"))
-            tokens.season = 1  # Anime default season
-            tokens.is_episodic = True
-            return tokens
+            ep_val = int(anime_m.group("episode"))
+            if 1900 <= ep_val <= 2099:
+                # 4-digit number in year range is a release year (e.g. [Group] Title - 2024 [1080p])
+                tokens.year = ep_val
+                tokens.title = self._clean_title(anime_m.group("title"))
+                tokens.group = anime_m.group("group").strip()
+                tokens.is_anime = False
+                tokens.is_episodic = False
+                return tokens
+            else:
+                tokens.is_anime = True
+                tokens.group = anime_m.group("group").strip()
+                tokens.title = self._clean_title(anime_m.group("title"))
+                tokens.episode = ep_val
+                tokens.season = 1  # Anime default season
+                tokens.is_episodic = True
+                return tokens
 
         # 4. Check for Standard TV episodic patterns (S01E02, 1x02)
         tv_m = RE_SEASON_EPISODE.search(stem)
@@ -220,6 +235,7 @@ class FilenameTokenizer:
 
     def _clean_title(self, raw: str) -> str:
         """Replace dots, underscores, and scene separators with clean spaces."""
+        raw = re.sub(r"^\s*\[[^\]]+\]\s*", "", raw)
         cleaned = re.sub(r"[\._]+", " ", raw).strip()
         # Remove trailing hyphens or brackets
         cleaned = re.sub(r"[\-\(\)\[\]]+$", "", cleaned).strip()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -295,8 +296,19 @@ class MediaClassifier:
                 quarantine_reason="Low confidence anime release" if conf < self.confidence_threshold else None,
             )
 
+        is_tv_folder = bool(re.search(r"(?i)[/\\](?:tv[/\\]|tv[-_\s]shows?|tv[-_\s]series|season[-_\s]*\d+)", path_str))
+        is_movie_folder = bool(re.search(r"(?i)[/\\](?:movies?[/\\]|films?[/\\])", path_str))
+
         # 4. TV Show (Episodic) Check:
-        if tokens.is_episodic or "season" in path_str or "tv" in path_str or "series" in path_str:
+        is_tv = False
+        if tokens.is_episodic:
+            is_tv = True
+        elif is_tv_folder and not tokens.year:
+            is_tv = True
+        elif is_tv_folder and tokens.episode is not None:
+            is_tv = True
+
+        if is_tv:
             tv_score = 0.40
             tv_signals = []
             if tokens.is_episodic:
@@ -304,10 +316,10 @@ class MediaClassifier:
                 tv_signals.append("season_episode_pattern")
             if tokens.episode is not None:
                 tv_score += 0.10
-            if "season" in path_str or "tv" in path_str or "series" in path_str:
+            if is_tv_folder:
                 tv_score += 0.15
                 tv_signals.append("tv_folder_hint")
-            if 600 <= dur <= 5400:  # 10m to 90m
+            if 600 <= dur <= 5400 and not tokens.year:
                 tv_score += 0.10
                 tv_signals.append("episodic_duration")
 
@@ -342,12 +354,12 @@ class MediaClassifier:
         movie_score = 0.40
         m_signals = []
         if tokens.year:
-            movie_score += 0.30
+            movie_score += 0.35
             m_signals.append("year_in_title")
         if tokens.resolution or tokens.source or tokens.video_codec:
             movie_score += 0.15
             m_signals.append("scene_technical_tags")
-        if "movie" in path_str or "film" in path_str:
+        if is_movie_folder or "movie" in path_str or "film" in path_str:
             movie_score += 0.15
             m_signals.append("movie_folder_hint")
         if dur >= 3600:  # > 1 hour

@@ -45,6 +45,7 @@ filters:
     - "desktop.ini"
     - "@eaDir"
     - "$RECYCLE.BIN"
+    - "*.txt"
 
 templates:
   movie: "{title} ({year})/{title} ({year}) [{resolution} {codec}].{ext}"

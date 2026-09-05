@@ -81,6 +81,7 @@ class Scanner:
             "desktop.ini",
             "@eaDir",
             "$RECYCLE.BIN",
+            "*.txt",
         ]
 
     def _matches_filter(self, filename: str) -> bool:

@@ -72,3 +72,27 @@ def test_podcast_tokenization(tokenizer):
     assert tokens.year == 2026
     assert tokens.date_stamp == "2026-03-12"
     assert tokens.title == "The Sunday Read"
+
+
+def test_movie_with_dimensions_not_episodic(tokenizer):
+    tokens = tokenizer.tokenize(Path("Interstellar.1920x1080.mkv"))
+    assert tokens.is_episodic is False
+    assert tokens.season is None
+    assert tokens.episode is None
+    assert tokens.resolution == "1080p"
+    assert "Interstellar" in tokens.title
+
+    tokens4k = tokenizer.tokenize(Path("Dune.Part.Two.3840x2160.mkv"))
+    assert tokens4k.is_episodic is False
+    assert tokens4k.season is None
+    assert tokens4k.episode is None
+    assert tokens4k.resolution == "2160p"
+
+
+def test_movie_bracket_group_year_not_anime(tokenizer):
+    tokens = tokenizer.tokenize(Path("[YTS.MX] Movie Title - 2024 [1080p].mkv"))
+    assert tokens.is_anime is False
+    assert tokens.is_episodic is False
+    assert tokens.year == 2024
+    assert tokens.title == "Movie Title"
+

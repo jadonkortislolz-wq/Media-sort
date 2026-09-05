@@ -226,3 +226,10 @@ class MediaSorterApp:
         with get_db_session(self.engine) as session:
             executor = MediaExecutor(self.settings, session)
             return executor.rollback_batch(batch_id)
+
+    def rollback_all(self) -> int:
+        """Rollback all past completed batches."""
+        with get_db_session(self.engine) as session:
+            executor = MediaExecutor(self.settings, session)
+            return executor.rollback_all()
+

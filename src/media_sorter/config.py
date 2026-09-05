@@ -111,6 +111,7 @@ class FilterSettings(BaseModel):
             "desktop.ini",
             "@eaDir",
             "$RECYCLE.BIN",
+            "*.txt",
         ]
     )
 
@@ -189,7 +190,7 @@ class PermissionSettings(BaseModel):
 
 
 class QuarantineSettings(BaseModel):
-    move_to_quarantine_folder: bool = True
+    move_to_quarantine_folder: bool = False
     directory: str = "Quarantine"
 
 

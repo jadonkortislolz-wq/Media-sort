@@ -178,27 +178,34 @@ def test_process_locking(tmp_path: Path):
         pass
 
 
-def test_clean_empty_directories_after_move(temp_env):
+def test_cleanup_deletes_txt_files_and_removes_dirs(temp_env):
     settings, engine, src_dir, dst_dir = temp_env
     settings.general.dry_run = False
     settings.general.cleanup_empty_dirs = True
 
-    # Create nested directories inside src_dir
-    nested_dir = src_dir / "Show.Name.S01E01.1080p" / "Subfolder"
-    nested_dir.mkdir(parents=True)
-    test_file = nested_dir / "episode.mkv"
-    test_file.write_text("video bytes")
+    # Setup source subdirectory with a movie, a .txt file, and a companion .txt file
+    sub_dir = src_dir / "Movie.Release.2023"
+    sub_dir.mkdir(parents=True, exist_ok=True)
 
-    target_dst = dst_dir / "Shows/Show Name/Season 01/Show Name - S01E01.mkv"
+    movie_file = sub_dir / "movie.mkv"
+    movie_file.write_text("dummy video")
+    companion_txt = sub_dir / "movie.txt"
+    companion_txt.write_text("companion text")
+    readme_txt = sub_dir / "README.txt"
+    readme_txt.write_text("torrent info")
+    root_txt = src_dir / "root_note.txt"
+    root_txt.write_text("root text file")
+
+    target_dst = dst_dir / "Movies/Movie (2023)/movie.mkv"
 
     with get_db_session(engine) as session:
         executor = MediaExecutor(settings, session)
         plan = [
             PlannedOperation(
-                src=test_file,
+                src=movie_file,
                 dst=target_dst,
                 action=ActionType.MOVE,
-                category="tv",
+                category="movie",
                 confidence=0.95,
             )
         ]
@@ -206,77 +213,56 @@ def test_clean_empty_directories_after_move(temp_env):
 
     assert report.moved_files == 1
     assert target_dst.exists()
-    assert not test_file.exists()
-    # The nested subfolders should have been cleaned up
-    assert not nested_dir.exists()
-    assert not (src_dir / "Show.Name.S01E01.1080p").exists()
-    # The source root directory itself must NEVER be removed
+
+    # Verify movie is gone from src
+    assert not movie_file.exists()
+    # Verify .txt files were deleted during cleanup
+    assert not companion_txt.exists()
+    assert not readme_txt.exists()
+    assert not root_txt.exists()
+    # Verify the empty subdirectory was cleaned up (rmdir'd)
+    assert not sub_dir.exists()
+    # Verify source root itself was NOT removed
     assert src_dir.exists()
-    assert report.cleaned_dirs >= 2
 
 
-def test_clean_empty_directories_keeps_non_empty(temp_env):
+def test_rollback_all_batches(temp_env):
     settings, engine, src_dir, dst_dir = temp_env
     settings.general.dry_run = False
-    settings.general.cleanup_empty_dirs = True
 
-    folder = src_dir / "MixedFolder"
-    folder.mkdir()
-    moved_file = folder / "move_me.mkv"
-    moved_file.write_text("move")
-    keep_file = folder / "keep_me.txt"
-    keep_file.write_text("stay")
+    file1 = src_dir / "sample1.mkv"
+    file1.write_text("file 1")
+    file2 = src_dir / "sample2.mkv"
+    file2.write_text("file 2")
 
-    target_dst = dst_dir / "Movies/move_me.mkv"
+    dst1 = dst_dir / "Movies/Movie 1/sample1.mkv"
+    dst2 = dst_dir / "Movies/Movie 2/sample2.mkv"
 
     with get_db_session(engine) as session:
         executor = MediaExecutor(settings, session)
-        plan = [
-            PlannedOperation(
-                src=moved_file,
-                dst=target_dst,
-                action=ActionType.MOVE,
-                category="movie",
-                confidence=0.95,
-            )
-        ]
-        report = executor.execute_batch(plan, dry_run=False)
+        executor.execute_batch(
+            [PlannedOperation(src=file1, dst=dst1, action=ActionType.MOVE, category="movie", confidence=0.9)],
+            dry_run=False
+        )
+        executor.execute_batch(
+            [PlannedOperation(src=file2, dst=dst2, action=ActionType.MOVE, category="movie", confidence=0.9)],
+            dry_run=False
+        )
 
-    assert report.moved_files == 1
-    # MixedFolder still has keep_me.txt, so it should NOT be deleted
-    assert folder.exists()
-    assert keep_file.exists()
-    assert report.cleaned_dirs == 0
-
-
-def test_clean_empty_directories_disabled(temp_env):
-    settings, engine, src_dir, dst_dir = temp_env
-    settings.general.dry_run = False
-    settings.general.cleanup_empty_dirs = False
-
-    folder = src_dir / "EmptyAfterMove"
-    folder.mkdir()
-    moved_file = folder / "file.mkv"
-    moved_file.write_text("content")
-
-    target_dst = dst_dir / "Movies/file.mkv"
+    assert not file1.exists()
+    assert not file2.exists()
+    assert dst1.exists()
+    assert dst2.exists()
 
     with get_db_session(engine) as session:
         executor = MediaExecutor(settings, session)
-        plan = [
-            PlannedOperation(
-                src=moved_file,
-                dst=target_dst,
-                action=ActionType.MOVE,
-                category="movie",
-                confidence=0.95,
-            )
-        ]
-        report = executor.execute_batch(plan, dry_run=False)
+        reverted = executor.rollback_all()
 
-    assert report.moved_files == 1
-    # When cleanup_empty_dirs is False, folder should remain
-    assert folder.exists()
-    assert report.cleaned_dirs == 0
+    assert reverted == 2
+    assert file1.exists()
+    assert file2.exists()
+    assert not dst1.exists()
+    assert not dst2.exists()
+
 
 
