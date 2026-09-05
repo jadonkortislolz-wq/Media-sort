@@ -20,7 +20,7 @@ from .classifier import ClassificationResult, MediaClassifier
 from .config import ActionType, Settings
 from .db import get_db_session
 from .executor import BatchExecutionReport, MediaExecutor, PlannedOperation, acquire_process_lock
-from .models import FileRecord
+from .models import FileRecord, OperationStatus
 from .namer import MediaNamer
 from .notifications import send_batch_notification
 from .providers import MetadataProvider, TMDBProvider
@@ -103,6 +103,15 @@ class MediaSorterApp:
         total_files = len(qualifying_files)
         logger.info("Files requiring processing", count=total_files)
 
+        # Check known shows from library
+        known_shows: List[Dict[str, Any]] = []
+        try:
+            with get_db_session(self.engine) as session:
+                from .library import get_known_shows
+                known_shows = get_known_shows(session)
+        except Exception:
+            pass
+
         # Parallel analysis and classification
         results: List[Tuple[ScannedFile, ClassificationResult]] = []
         worker_count = self.settings.general.worker_count
@@ -111,6 +120,24 @@ class MediaSorterApp:
             tokens = self.tokenizer.tokenize(scanned.path)
             meta = self.analyzer.analyze(scanned.path)
             classification = self.classifier.classify(scanned, tokens, meta)
+
+            # Match against known library shows if category is unsure or confidence is low
+            if known_shows and (
+                classification.category not in ("tv", "movie")
+                or classification.needs_quarantine
+                or classification.confidence < 0.8
+            ):
+                from .library import match_known_show
+                matched = match_known_show(scanned.path.name, known_shows)
+                if not matched and len(scanned.path.parts) > 1:
+                    matched = match_known_show(scanned.path.parent.name, known_shows)
+                if matched:
+                    classification.category = "tv"
+                    if not classification.tokens.title or classification.tokens.title.lower() in ("episode", "unknown", ""):
+                        classification.tokens.title = matched["title"]
+                    classification.confidence = max(classification.confidence, 0.95)
+                    classification.needs_quarantine = False
+
             return scanned, classification
 
         completed = 0
@@ -232,6 +259,50 @@ class MediaSorterApp:
             skipped=report.skipped_files,
             failed=report.failed_files,
         )
+
+        # Update library catalog with moved items
+        if not is_dry_run and report.moved_files > 0:
+            try:
+                from .library import record_detected_item
+                shows_dir = self.settings.get_destination_path("tv")
+                movies_dir = self.settings.get_destination_path("movie")
+                with get_db_session(self.engine) as session:
+                    for op in report.operations:
+                        if op.status == OperationStatus.COMMITTED.value:
+                            cat = (op.category or "tv").lower()
+                            dst_p = Path(op.dst)
+                            if cat in ("tv", "anime"):
+                                try:
+                                    rel_tv = dst_p.relative_to(shows_dir)
+                                    show_title = rel_tv.parts[0]
+                                    dest_folder = str(shows_dir / show_title)
+                                    record_detected_item(
+                                        session,
+                                        self.settings,
+                                        show_title,
+                                        "tv",
+                                        destination_folder=dest_folder,
+                                        delta_count=1,
+                                    )
+                                except Exception:
+                                    pass
+                            elif cat == "movie":
+                                try:
+                                    rel_mv = dst_p.relative_to(movies_dir)
+                                    movie_title = rel_mv.parts[0]
+                                    dest_folder = str(movies_dir / movie_title)
+                                    record_detected_item(
+                                        session,
+                                        self.settings,
+                                        movie_title,
+                                        "movie",
+                                        destination_folder=dest_folder,
+                                        delta_count=1,
+                                    )
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.error("Error updating library from execution report", error=str(e))
 
         # Send notification webhook if configured
         if self.settings.notifications.enabled:

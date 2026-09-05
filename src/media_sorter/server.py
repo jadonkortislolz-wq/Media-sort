@@ -86,6 +86,16 @@ class SortShowRequest(BaseModel):
     dry_run: bool = False
 
 
+class SortGroupRequest(BaseModel):
+    group_name: str
+    group_type: str = "folder"
+    category: Optional[str] = "tv"
+    title: Optional[str] = None
+    year: Optional[int] = None
+    relative_paths: List[str]
+    dry_run: bool = False
+
+
 class SettingsUpdateRequest(BaseModel):
     downloads_dir: Optional[str] = None
     movies_dir: Optional[str] = None
@@ -174,6 +184,7 @@ def fetch_show_poster(
     show_name: str,
     directory: Optional[Path] = None,
     show_files: Optional[List[Dict[str, Any]]] = None,
+    allow_network: bool = True,
 ) -> Optional[str]:
     """Retrieves a poster image URL for a show, checking local files first then TVmaze."""
     if not show_name:
@@ -201,6 +212,9 @@ def fetch_show_poster(
                                     return local_url
         except Exception:
             pass
+
+    if not allow_network:
+        return None
 
     # 2. Query TVmaze open API (no API key required)
     clean = clean_detected_show_name(show_name)
@@ -247,20 +261,192 @@ def fetch_show_poster(
     return None
 
 
-def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, Any]:
-    """Inspects downloads folder, categorizing files from the same show with believed show names."""
+def extract_clean_stem(name: str) -> str:
+    """Extract a normalized stem from filename for clustering."""
+    stem = Path(name).stem
+    stem = re.sub(r"\[[^\]]+\]|\([^\)]+\)", "", stem).strip()
+    stem = re.sub(
+        r"(?i)\b(2160p|1080p|1080i|720p|576p|480p|4k|bluray|blu-ray|bdrip|webrip|web-dl|web|hdtv|dvdrip|dvd|x264|x265|hevc|avc|av1|h\.?264|h\.?265|dts|aac|ac3|truehd|atmos|flac|remux|repack|part\s*\d+|cd\s*\d+|disc\s*\d+|special\s*\d*)\b.*",
+        "",
+        stem,
+    )
+    stem = re.sub(r"(?i)\b(?:e|ep|episode)?\s*\d{1,4}\b.*$", "", stem)
+    stem = re.sub(r"[\._-]+", " ", stem).strip()
+    return stem
+
+
+def common_prefix_words(s1: str, s2: str) -> str:
+    w1 = s1.split()
+    w2 = s2.split()
+    common = []
+    for a, b in zip(w1, w2):
+        if a.lower() == b.lower():
+            common.append(a)
+        else:
+            break
+    if len(common) >= 2 or (len(common) == 1 and len(common[0]) >= 5):
+        res = " ".join(common).strip(" -_:,")
+        if len(res) >= 3:
+            return res
+    return ""
+
+
+def cluster_unsure_files(
+    unsure_files: List[Dict[str, Any]], settings: Settings
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Group unsure files by shared subfolder or common name/prefix into dropdown groups."""
+    if not unsure_files:
+        return [], []
+
+    shows_base = settings.get_destination_path("tv")
+
+    # 1. Group by parent folder
+    folder_map: Dict[str, List[Dict[str, Any]]] = {}
+    root_files: List[Dict[str, Any]] = []
+
+    for f in unsure_files:
+        rel_str = f.get("relative_path", f["name"])
+        rel_parts = Path(rel_str).parts
+        if len(rel_parts) > 1:
+            folder_key = rel_parts[0]
+            folder_map.setdefault(folder_key, []).append(f)
+        else:
+            root_files.append(f)
+
+    unsure_groups: List[Dict[str, Any]] = []
+    candidates: List[Dict[str, Any]] = []
+
+    # Subfolders with >= 2 files form a folder group
+    for folder_name, fl in folder_map.items():
+        if len(fl) >= 2:
+            clean_title = clean_detected_show_name(folder_name)
+            unsure_groups.append({
+                "group_id": f"folder_{abs(hash(folder_name)) % 10000000}",
+                "group_name": folder_name,
+                "group_type": "folder",
+                "folder_name": folder_name,
+                "suggested_title": clean_title,
+                "believed_destination_folder": str(shows_base / clean_title),
+                "count": len(fl),
+                "files": sorted(fl, key=lambda x: x["name"].lower()),
+            })
+        else:
+            candidates.extend(fl)
+
+    candidates.extend(root_files)
+
+    # 2. Group by exact normalized stem
+    assigned = set()
+    stem_dict: Dict[str, List[Dict[str, Any]]] = {}
+    for f in candidates:
+        st = extract_clean_stem(f["name"])
+        if len(st) >= 3:
+            stem_dict.setdefault(st.lower(), []).append(f)
+
+    for st_lower, fl in stem_dict.items():
+        if len(fl) >= 2:
+            display_name = clean_detected_show_name(fl[0]["name"])
+            if not display_name or len(display_name) < 2:
+                display_name = st_lower.title()
+            unsure_groups.append({
+                "group_id": f"name_{abs(hash(st_lower)) % 10000000}",
+                "group_name": display_name,
+                "group_type": "name",
+                "folder_name": None,
+                "suggested_title": display_name,
+                "believed_destination_folder": str(shows_base / display_name),
+                "count": len(fl),
+                "files": sorted(fl, key=lambda x: x["name"].lower()),
+            })
+            for f in fl:
+                assigned.add(f.get("relative_path", f["name"]))
+
+    remaining = [f for f in candidates if f.get("relative_path", f["name"]) not in assigned]
+
+    # 3. Cluster remaining files by common word prefix
+    while remaining:
+        current = remaining.pop(0)
+        cluster = [current]
+        best_prefix = ""
+        c_stem = extract_clean_stem(current["name"])
+        i = 0
+        while i < len(remaining):
+            other = remaining[i]
+            o_stem = extract_clean_stem(other["name"])
+            pref = common_prefix_words(c_stem, o_stem)
+            if pref and len(pref) >= 4:
+                cluster.append(other)
+                if not best_prefix or len(pref) > len(best_prefix):
+                    best_prefix = pref
+                remaining.pop(i)
+            else:
+                i += 1
+
+        if len(cluster) >= 2:
+            disp = clean_detected_show_name(best_prefix) if best_prefix else c_stem
+            unsure_groups.append({
+                "group_id": f"prefix_{abs(hash(disp)) % 10000000}",
+                "group_name": disp,
+                "group_type": "name",
+                "folder_name": None,
+                "suggested_title": disp,
+                "believed_destination_folder": str(shows_base / disp),
+                "count": len(cluster),
+                "files": sorted(cluster, key=lambda x: x["name"].lower()),
+            })
+
+    # All files in unsure_groups
+    all_grouped_paths = {f.get("relative_path", f["name"]) for g in unsure_groups for f in g["files"]}
+    singles = [f for f in unsure_files if f.get("relative_path", f["name"]) not in all_grouped_paths]
+
+    unsure_groups.sort(key=lambda g: (-g["count"], g["group_name"].lower()))
+    singles.sort(key=lambda x: x["name"].lower())
+
+    return unsure_groups, singles
+
+
+def inspect_downloads_folder(
+    directory: Path,
+    settings: Settings,
+    engine: Optional[Engine] = None,
+    session: Optional[Session] = None,
+) -> Dict[str, Any]:
+    """Inspects downloads folder, categorizing files into shows, unsure groups, and singles."""
     from .tokenizer import FilenameTokenizer
 
     tok = FilenameTokenizer()
     all_files: List[Dict[str, Any]] = []
     show_map: Dict[str, List[Dict[str, Any]]] = {}
-    singles: List[Dict[str, Any]] = []
+    unsure_candidates: List[Dict[str, Any]] = []
 
     if not directory.exists():
-        return {"path": str(directory), "files": [], "shows": [], "singles": [], "total_files": 0}
+        return {
+            "path": str(directory),
+            "files": [],
+            "shows": [],
+            "unsure_groups": [],
+            "singles": [],
+            "total_files": 0,
+        }
 
     shows_base = settings.get_destination_path("tv")
     movies_base = settings.get_destination_path("movie")
+
+    known_shows: List[Dict[str, Any]] = []
+    if session is not None:
+        try:
+            from .library import get_known_shows
+            known_shows = get_known_shows(session)
+        except Exception:
+            pass
+    elif engine is not None:
+        try:
+            from .db import get_db_session
+            from .library import get_known_shows
+            with get_db_session(engine) as sess:
+                known_shows = get_known_shows(sess)
+        except Exception:
+            pass
 
     for root, _, files in os.walk(directory):
         for f in files:
@@ -309,6 +495,15 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
                 if movie_year and not t.is_episodic and t.season is None and t.episode is None:
                     show_name = None
 
+                # Show memory matching: check known library shows
+                if not show_name and known_shows:
+                    from .library import match_known_show
+                    m_show = match_known_show(p.name, known_shows)
+                    if not m_show and len(rel.parts) > 1:
+                        m_show = match_known_show(rel.parts[0], known_shows)
+                    if m_show:
+                        show_name = m_show["title"]
+
                 file_info: Dict[str, Any] = {
                     "name": f,
                     "relative_path": str(rel),
@@ -344,7 +539,7 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
                     file_info["detected_type"] = detected_type
                     file_info["believed_title"] = believed_title
                     file_info["believed_destination"] = dest
-                    singles.append(file_info)
+                    unsure_candidates.append(file_info)
             except Exception:
                 pass
 
@@ -361,7 +556,7 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
         seasons = sorted(list({f["season"] for f in sorted_files if f.get("season") is not None}))
         season_summary = ", ".join(f"Season {s:02d}" for s in seasons) if seasons else "Episodic Series"
         dest_folder = str(shows_base / s_name)
-        poster_url = fetch_show_poster(s_name, directory=directory, show_files=sorted_files)
+        poster_url = fetch_show_poster(s_name, directory=directory, show_files=sorted_files, allow_network=False)
         shows_list.append({
             "show_name": s_name,
             "count": len(sorted_files),
@@ -373,14 +568,51 @@ def inspect_downloads_folder(directory: Path, settings: Settings) -> Dict[str, A
         })
 
     shows_list.sort(key=lambda x: (-x["count"], x["show_name"].lower()))
-    singles.sort(key=lambda x: x["name"].lower())
     all_files.sort(key=lambda x: x["name"].lower())
+
+    # Cluster non-show files into unsure dropdown groups and singles
+    unsure_groups, singles = cluster_unsure_files(unsure_candidates, settings)
+
+    # Automatically record detected shows in library catalog
+    if session is not None:
+        try:
+            from .library import record_detected_item
+            for show_item in shows_list:
+                record_detected_item(
+                    session,
+                    settings,
+                    show_item["show_name"],
+                    "tv",
+                    destination_folder=show_item["believed_destination_folder"],
+                    poster_url=show_item.get("poster_url"),
+                    delta_count=show_item["count"],
+                )
+        except Exception:
+            pass
+    elif engine is not None:
+        try:
+            from .db import get_db_session
+            from .library import record_detected_item
+            with get_db_session(engine) as sess:
+                for show_item in shows_list:
+                    record_detected_item(
+                        sess,
+                        settings,
+                        show_item["show_name"],
+                        "tv",
+                        destination_folder=show_item["believed_destination_folder"],
+                        poster_url=show_item.get("poster_url"),
+                        delta_count=show_item["count"],
+                    )
+        except Exception:
+            pass
 
     return {
         "path": str(directory),
         "total_files": len(all_files),
         "files": all_files,
         "shows": shows_list,
+        "unsure_groups": unsure_groups,
         "singles": singles,
     }
 
@@ -407,6 +639,17 @@ def create_app(
                     except Exception as e:
                         logger.error("Auto-sort background task error", error=str(e))
                 await asyncio.sleep(max(interval, 10) if interval > 0 else 10)
+
+        # Initial disk library synchronization in background
+        def initial_library_sync():
+            try:
+                from .library import sync_library_from_disk
+                with get_db_session(engine) as session:
+                    sync_library_from_disk(session, settings)
+            except Exception as e:
+                logger.error("Initial library sync error", error=str(e))
+
+        asyncio.get_running_loop().run_in_executor(None, initial_library_sync)
 
         worker_task = asyncio.create_task(auto_sort_worker())
         try:
@@ -565,7 +808,7 @@ def create_app(
         shows_path = settings.get_destination_path("tv")
 
         return {
-            "downloads": inspect_downloads_folder(downloads_path, settings),
+            "downloads": inspect_downloads_folder(downloads_path, settings, engine=engine),
             "movies": {
                 "path": str(movies_path),
                 "files": list_files_in_dir(movies_path),
@@ -910,6 +1153,21 @@ def create_app(
             final_dst = dest_dir / target.name
 
         shutil.move(target, final_dst)
+        with get_db_session(engine) as session:
+            try:
+                from .library import record_detected_item
+                record_detected_item(
+                    session,
+                    settings,
+                    req.title.strip(),
+                    category,
+                    destination_folder=str(dest_dir),
+                    year=req.year,
+                    delta_count=1,
+                )
+            except Exception as e:
+                logger.error("Error updating library from manual sort", error=str(e))
+
         return {"status": "moved", "destination": str(final_dst)}
 
     @app.post("/api/files/sort-show")
@@ -929,7 +1187,7 @@ def create_app(
                                 resolved_files.append(found)
                                 break
         else:
-            inspection = inspect_downloads_folder(downloads_path, settings)
+            inspection = inspect_downloads_folder(downloads_path, settings, engine=engine)
             for show in inspection.get("shows", []):
                 if show.get("show_name", "").lower() == req.show_name.lower():
                     for f in show.get("files", []):
@@ -947,6 +1205,21 @@ def create_app(
             filter_paths=resolved_files,
             show_name_override=req.show_name,
         )
+
+        with get_db_session(engine) as session:
+            try:
+                from .library import record_detected_item
+                shows_base = settings.get_destination_path("tv")
+                record_detected_item(
+                    session,
+                    settings,
+                    req.show_name,
+                    "tv",
+                    destination_folder=str(shows_base / req.show_name),
+                    delta_count=report.moved_files,
+                )
+            except Exception as e:
+                logger.error("Error updating library from sort-show", error=str(e))
 
         return {
             "status": "ok",
@@ -966,6 +1239,125 @@ def create_app(
                 for op in report.operations
             ],
         }
+
+    @app.post("/api/files/sort-group")
+    def sort_group_endpoint(req: SortGroupRequest):
+        """Sort an entire group of unsure files (shared subfolder or common name) together."""
+        downloads_path = (settings.get_source_paths()[0] if settings.get_source_paths() else Path("downloads")).resolve()
+        resolved_files: List[Path] = []
+        for rel in req.relative_paths:
+            p = (downloads_path / rel).resolve()
+            if p.is_file() and p.is_relative_to(downloads_path):
+                resolved_files.append(p)
+            else:
+                for root, _, files in os.walk(downloads_path):
+                    if rel in files or p.name in files:
+                        found = Path(root) / (rel if rel in files else p.name)
+                        if found.is_file():
+                            resolved_files.append(found)
+                            break
+
+        if not resolved_files:
+            raise HTTPException(status_code=404, detail=f"No files found for group '{req.group_name}'")
+
+        cat = (req.category or "tv").lower()
+        target_title = (req.title or req.group_name).strip()
+
+        if cat == "tv":
+            sorter = MediaSorterApp(settings, engine)
+            report = sorter.run(
+                dry_run=req.dry_run,
+                filter_paths=resolved_files,
+                show_name_override=target_title,
+            )
+            with get_db_session(engine) as session:
+                try:
+                    from .library import record_detected_item
+                    shows_base = settings.get_destination_path("tv")
+                    record_detected_item(
+                        session,
+                        settings,
+                        target_title,
+                        "tv",
+                        destination_folder=str(shows_base / target_title),
+                        delta_count=report.moved_files,
+                    )
+                except Exception as e:
+                    logger.error("Error updating library from sort-group tv", error=str(e))
+
+            return {
+                "status": "ok",
+                "group_name": req.group_name,
+                "title": target_title,
+                "category": "tv",
+                "total_files": report.total_files,
+                "moved_files": report.moved_files,
+                "quarantined_files": report.quarantined_files,
+                "failed_files": report.failed_files,
+                "batch_id": report.batch_id,
+                "operations": [
+                    {
+                        "src": str(op.src.name),
+                        "dst": str(op.dst),
+                        "category": op.category,
+                        "confidence": int(op.confidence * 100),
+                    }
+                    for op in report.operations
+                ],
+            }
+        else:
+            movies_base = settings.get_destination_path("movie")
+            folder_name = f"{target_title} ({req.year})" if req.year else target_title
+            dest_dir = movies_base / folder_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            moved_count = 0
+            for f in resolved_files:
+                if not req.dry_run:
+                    final_dst = dest_dir / f.name
+                    shutil.move(f, final_dst)
+                    moved_count += 1
+            with get_db_session(engine) as session:
+                try:
+                    from .library import record_detected_item
+                    record_detected_item(
+                        session,
+                        settings,
+                        target_title,
+                        "movie",
+                        destination_folder=str(dest_dir),
+                        year=req.year,
+                        delta_count=moved_count,
+                    )
+                except Exception as e:
+                    logger.error("Error updating library from sort-group movie", error=str(e))
+
+            return {
+                "status": "ok",
+                "group_name": req.group_name,
+                "title": target_title,
+                "category": "movie",
+                "total_files": len(resolved_files),
+                "moved_files": moved_count,
+                "quarantined_files": 0,
+                "failed_files": 0,
+                "batch_id": "manual_group_movie",
+                "operations": [],
+            }
+
+    @app.get("/api/library")
+    def get_library_catalog(category: Optional[str] = None, search: Optional[str] = None):
+        """Retrieve indexed library shows and movies with live search and category filtering."""
+        with get_db_session(engine) as session:
+            from .library import list_library_items
+            return list_library_items(session, category=category, search=search)
+
+    @app.post("/api/library/rescan")
+    def rescan_library_catalog():
+        """Rescan movies and shows directories on disk and synchronize database."""
+        with get_db_session(engine) as session:
+            from .library import sync_library_from_disk
+            res = sync_library_from_disk(session, settings)
+            return {"status": "ok", **res}
 
 
     @app.get("/api/settings")
@@ -2255,6 +2647,7 @@ def create_app(
       <div class="nav-tabs">
         <div class="nav-tab active" id="nav-dashboard" onclick="switchTab('dashboard')">Dashboard & Activity</div>
         <div class="nav-tab" id="nav-files" onclick="switchTab('files')">Folder Explorer</div>
+        <div class="nav-tab" id="nav-library" onclick="switchTab('library')">📚 Library</div>
         <div class="nav-tab" id="nav-quarantine" onclick="switchTab('quarantine')">Quarantine Review <span id="quar-badge" class="tag tag-quarantine" style="display:none; margin-left:4px;">0</span></div>
         <div class="nav-tab" id="nav-settings" onclick="switchTab('settings')">Settings & .env</div>
       </div>
@@ -2371,6 +2764,22 @@ def create_app(
         <!-- Injected dynamically -->
       </div>
 
+      <!-- Container for Unsure Groups (Shared Subfolders & Common Name Prefixes) -->
+      <div id="downloads-unsure-container" style="display: none; margin-top: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
+          <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span>📁 Unsure Groups (Shared Subfolders & Matching Names)</span>
+            <span id="unsure-groups-count-badge" class="tag tag-amber">0 groups</span>
+          </h4>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">
+            Grouped by shared folder or name. Expand any group to sort or set show/movie details.
+          </span>
+        </div>
+        <div id="downloads-unsure-list">
+          <!-- Injected dynamically -->
+        </div>
+      </div>
+
       <!-- Container for Other / Standalone Files -->
       <div id="downloads-singles-container" style="display: none; margin-top: 1.5rem;">
         <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.5rem;">
@@ -2399,6 +2808,51 @@ def create_app(
         <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-title, #fff);">No files in Downloads folder</div>
         <p style="font-size: 0.85rem; margin-top: 0.25rem;">New downloaded media will appear here ready to be categorized and organized.</p>
         <button class="btn btn-outline btn-sm" style="margin-top: 0.75rem;" onclick="addSampleDownloads()">Add Test Samples</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: LIBRARY CATALOG -->
+  <div id="tab-library" style="display: none;">
+    <div class="panel">
+      <div class="panel-header" style="flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <div class="panel-title" style="display: flex; align-items: center; gap: 0.65rem;">
+            <span>📚 Media Library</span>
+            <span id="lib-badge-shows" class="tag tag-show">0 Shows</span>
+            <span id="lib-badge-movies" class="tag tag-movie">0 Movies</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.3rem;">
+            Shows and movies in your library catalog. When new incoming downloads match a known show, they are automatically routed into that show's folder.
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-outline btn-sm" id="btn-library-rescan" onclick="rescanLibraryDisk()">🔄 Rescan Disk Library</button>
+        </div>
+      </div>
+
+      <!-- Filter toolbar with Shows/Movies selector & Search -->
+      <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; margin: 1rem 0; flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.5rem;" id="library-type-selectors">
+          <button type="button" id="lib-filter-all" class="btn btn-outline btn-sm" onclick="setLibraryFilter('all')">📂 All (<span id="lib-cnt-all">0</span>)</button>
+          <button type="button" id="lib-filter-tv" class="btn btn-emerald btn-sm" onclick="setLibraryFilter('tv')">📺 Shows (<span id="lib-cnt-tv">0</span>)</button>
+          <button type="button" id="lib-filter-movie" class="btn btn-outline btn-sm" onclick="setLibraryFilter('movie')">🎬 Movies (<span id="lib-cnt-movie">0</span>)</button>
+        </div>
+        <div style="min-width: 260px; flex: 1; max-width: 380px;">
+          <input type="text" id="lib-search-input" class="form-control" placeholder="🔍 Search library titles..." oninput="onLibrarySearchChange(this.value)">
+        </div>
+      </div>
+
+      <!-- Library Grid / List -->
+      <div id="library-items-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+        <!-- Injected dynamically -->
+      </div>
+
+      <!-- Library Empty State -->
+      <div id="library-empty" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📚</div>
+        <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-title, #fff);">No library items found</div>
+        <p style="font-size: 0.85rem; margin-top: 0.25rem;">Click "Rescan Disk Library" above to scan your drives and discover existing shows and movies.</p>
       </div>
     </div>
   </div>
@@ -2946,6 +3400,7 @@ def create_app(
       document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
       const d = document.getElementById('tab-dashboard'); if (d) d.style.display = 'none';
       const f = document.getElementById('tab-files'); if (f) f.style.display = 'none';
+      const l = document.getElementById('tab-library'); if (l) l.style.display = 'none';
       const q = document.getElementById('tab-quarantine'); if (q) q.style.display = 'none';
       const s = document.getElementById('tab-settings'); if (s) s.style.display = 'none';
 
@@ -2956,6 +3411,7 @@ def create_app(
 
       if (tab === 'dashboard') loadDashboard();
       if (tab === 'files') loadFiles();
+      if (tab === 'library') loadLibrary();
       if (tab === 'quarantine') loadQuarantine();
       if (tab === 'settings') loadSettings();
     }
@@ -3219,6 +3675,10 @@ def create_app(
     let currentQuarantinePending = [];
     let currentExplorerSingles = [];
     let currentExplorerShows = [];
+    let currentExplorerUnsureGroups = [];
+    let currentLibraryFilter = 'all';
+    let currentLibrarySearch = '';
+    let currentLibraryData = { shows: [], movies: [] };
 
     function openManualModalByIndex(type, idx, fIdx) {
       if (type === 'quarantine') {
@@ -3227,6 +3687,11 @@ def create_app(
       } else if (type === 'singles') {
         const item = currentExplorerSingles[idx];
         if (item) openManualModal('files', item);
+      } else if (type === 'unsure_item') {
+        if (currentExplorerUnsureGroups && currentExplorerUnsureGroups[idx] && currentExplorerUnsureGroups[idx].files[fIdx]) {
+          const file = currentExplorerUnsureGroups[idx].files[fIdx];
+          openManualModal('files', file);
+        }
       } else if (type === 'show') {
         const show = currentExplorerShows[idx];
         if (show && show.files && show.files[fIdx]) {
@@ -3252,7 +3717,12 @@ def create_app(
       const seasonInput = document.getElementById('manual-input-season');
       const episodeInput = document.getElementById('manual-input-episode');
 
-      const fileName = data.filename || data.name || (data.relative_path ? data.relative_path.split('/').pop() : 'Unknown File');
+      let fileName = 'Unknown File';
+      if (contextType === 'unsure_group') {
+        fileName = `📁 Unsure Group: ${data.group_name} (${data.count} files)`;
+      } else {
+        fileName = data.filename || data.name || (data.relative_path ? data.relative_path.split('/').pop() : 'Unknown File');
+      }
       if (filenameElem) filenameElem.textContent = fileName;
 
       const fileSelectContainer = document.getElementById('manual-modal-file-select-container');
@@ -3272,12 +3742,14 @@ def create_app(
         if (fileSingleContainer) fileSingleContainer.style.display = 'block';
       }
 
-      const initialCat = (data.suggested_category || data.detected_type || 'movie').toLowerCase();
-      toggleManualCat(initialCat === 'tv' || initialCat === 'show' ? 'tv' : 'movie');
+      const initialCat = (data.suggested_category || data.detected_type || 'tv').toLowerCase();
+      toggleManualCat(initialCat === 'movie' ? 'movie' : 'tv');
 
-      let initTitle = data.believed_title || '';
-      if (!initTitle && fileName) {
+      let initTitle = data.suggested_title || data.believed_title || '';
+      if (!initTitle && fileName && contextType !== 'unsure_group') {
         initTitle = fileName.replace(/\.[^/.]+$/, '').replace(/[._]/g, ' ').trim();
+      } else if (!initTitle && data.group_name) {
+        initTitle = data.group_name;
       }
       if (titleInput) titleInput.value = initTitle;
       if (yearInput) yearInput.value = data.year || '';
@@ -3401,6 +3873,28 @@ def create_app(
           closeManualModal();
           loadFiles();
           loadDashboard();
+          loadLibrary();
+        } else if (currentManualContext.type === 'unsure_group') {
+          const group = currentManualContext.data;
+          const groupPayload = {
+            group_name: group.group_name,
+            group_type: group.group_type,
+            category: manualCategory,
+            title: title,
+            year: manualCategory === 'movie' ? (parseInt(document.getElementById('manual-input-year').value, 10) || null) : null,
+            relative_paths: group.files.map(f => f.relative_path || f.name)
+          };
+          const res = await fetch('/api/files/sort-group', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(groupPayload)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Group sorting failed');
+          showToast(`✓ Organized ${data.moved_files} files for '${title}'!`);
+          closeManualModal();
+          await Promise.all([loadFiles(), loadDashboard(), loadQuarantine()]);
+          loadLibrary();
         }
       } catch (err) {
         showToast('Error: ' + err.message);
@@ -3438,8 +3932,68 @@ def create_app(
         }
         showToast(`✓ Successfully organized ${data.moved_files} files for ${show.show_name}!`);
         await Promise.all([loadFiles(), loadDashboard(), loadQuarantine()]);
+        loadLibrary();
       } catch (e) {
         showToast('Error sorting show: ' + (e.message || e));
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+      }
+    }
+
+    function toggleUnsureDropdown(idx) {
+      const body = document.getElementById(`unsure-body-${idx}`);
+      const chev = document.getElementById(`unsure-chevron-${idx}`);
+      if (!body) return;
+      const isShown = body.style.display === 'block';
+      body.style.display = isShown ? 'none' : 'block';
+      if (chev) {
+        chev.textContent = isShown ? '▶' : '▼';
+        chev.classList.toggle('expanded', !isShown);
+      }
+    }
+
+    function openManualModalForGroup(idx) {
+      if (!currentExplorerUnsureGroups || !currentExplorerUnsureGroups[idx]) return;
+      const group = currentExplorerUnsureGroups[idx];
+      openManualModal('unsure_group', {
+        ...group,
+        name: group.group_name,
+        believed_title: group.suggested_title || group.group_name,
+        count: group.count,
+      });
+    }
+
+    async function sortUnsureGroupByIndex(idx, btn) {
+      if (!currentExplorerUnsureGroups || !currentExplorerUnsureGroups[idx]) return;
+      const group = currentExplorerUnsureGroups[idx];
+      const origHtml = btn ? btn.innerHTML : '⚡ Sort Group';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="loading-spinner"></span> Sorting...`;
+      }
+      showToast(`⚡ Sorting ${group.files.length} files in group '${group.group_name}'...`);
+
+      try {
+        const res = await fetch('/api/files/sort-group', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            group_name: group.group_name,
+            group_type: group.group_type,
+            category: 'tv',
+            title: group.suggested_title || group.group_name,
+            relative_paths: group.files.map(f => f.relative_path || f.name)
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Sorting group failed');
+        showToast(`✓ Successfully organized ${data.moved_files} files for '${group.group_name}'!`);
+        await Promise.all([loadFiles(), loadDashboard(), loadQuarantine()]);
+        loadLibrary();
+      } catch (e) {
+        showToast('Error sorting group: ' + (e.message || e));
         if (btn) {
           btn.disabled = false;
           btn.innerHTML = origHtml;
@@ -3601,6 +4155,106 @@ def create_app(
         });
       }
 
+      // Render Unsure Groups Dropdowns (Shared Subfolders & Common Name Prefixes)
+      const unsureContainer = document.getElementById('downloads-unsure-container');
+      const unsureList = document.getElementById('downloads-unsure-list');
+      const unsureBadge = document.getElementById('unsure-groups-count-badge');
+      const rawUnsureGroups = downloads.unsure_groups || [];
+      const unsureGroups = rawUnsureGroups.map(g => {
+        const filtered = (g.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+        return { ...g, files: filtered, count: filtered.length };
+      }).filter(g => g.count > 0);
+      currentExplorerUnsureGroups = unsureGroups;
+
+      if (unsureContainer && unsureList) {
+        if (unsureGroups.length > 0) {
+          unsureContainer.style.display = 'block';
+          if (unsureBadge) {
+            const totalGroupFiles = unsureGroups.reduce((acc, g) => acc + g.count, 0);
+            unsureBadge.textContent = `${unsureGroups.length} group${unsureGroups.length === 1 ? '' : 's'} (${totalGroupFiles} files)`;
+          }
+          unsureList.innerHTML = '';
+          unsureGroups.forEach((group, idx) => {
+            const card = document.createElement('div');
+            card.className = 'show-dropdown';
+            card.id = `unsure-card-${idx}`;
+            card.style.borderLeft = '3px solid var(--amber)';
+
+            const groupNameEsc = escapeHtml(group.group_name);
+            const sugTitleEsc = escapeHtml(group.suggested_title || group.group_name);
+            const typeLabel = group.group_type === 'folder' ? '📁 Shared Subfolder' : '🏷️ Matching Name Prefix';
+
+            card.innerHTML = `
+              <div class="show-dropdown-header" onclick="toggleUnsureDropdown(${idx})">
+                <div class="show-dropdown-left">
+                  <span class="show-dropdown-chevron" id="unsure-chevron-${idx}">▶</span>
+                  <span style="font-size: 1.4rem;">${group.group_type === 'folder' ? '📁' : '🏷️'}</span>
+                  <div>
+                    <div class="show-dropdown-title">${groupNameEsc}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${typeLabel} • Suggested: <strong style="color: var(--text);">${sugTitleEsc}</strong></div>
+                  </div>
+                  <span class="show-dropdown-badge" style="background: rgba(245, 158, 11, 0.2); color: var(--amber);">${group.count} file${group.count === 1 ? '' : 's'}</span>
+                </div>
+                <div class="show-dropdown-side">
+                  <span class="tag tag-amber" style="font-size: 0.72rem;">Unsure Group</span>
+                </div>
+              </div>
+              <div class="show-dropdown-body" id="unsure-body-${idx}">
+                <div class="show-dropdown-subbar" style="background: rgba(245, 158, 11, 0.05); border-bottom: 1px solid rgba(245, 158, 11, 0.15);">
+                  <div>
+                    <div style="font-size: 0.92rem; font-weight: 600; color: var(--text-title, #fff);">${groupNameEsc}</div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem;">
+                      Suggested Show: <code style="color: var(--emerald);">${sugTitleEsc}</code>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 0.45rem;">
+                    <button class="btn btn-outline btn-sm" onclick="openManualModalForGroup(${idx})">✏️ Set Show/Movie for Group</button>
+                    <button class="btn btn-amber btn-sm" id="btn-sort-unsure-${idx}" onclick="sortUnsureGroupByIndex(${idx}, this)">⚡ Sort Group</button>
+                  </div>
+                </div>
+                <div class="show-table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>File</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-unsure-${idx}"></tbody>
+                  </table>
+                </div>
+              </div>
+            `;
+            unsureList.appendChild(card);
+
+            const tbody = card.querySelector(`#tbody-unsure-${idx}`);
+            group.files.forEach((f, fIdx) => {
+              const tr = document.createElement('tr');
+              const delTarget = f.relative_path || f.name;
+              tr.innerHTML = `
+                <td>
+                  <code>${escapeHtml(f.name)}</code>
+                  <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(f.relative_path)}</div>
+                </td>
+                <td><span class="tag tag-dry">${escapeHtml(f.detected_type || 'unsure').toUpperCase()}</span></td>
+                <td>${escapeHtml(f.size)}</td>
+                <td>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <button class="btn btn-outline btn-sm" title="Set show or movie details" onclick="openManualModalByIndex('unsure_item', ${idx}, ${fIdx})">✏️ Set Show/Movie</button>
+                    <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
+                  </div>
+                </td>
+              `;
+              tbody.appendChild(tr);
+            });
+          });
+        } else {
+          unsureContainer.style.display = 'none';
+        }
+      }
+
       // Render Singles / Other Media
       if (singlesContainer && singlesTbody) {
         if (singles.length > 0) {
@@ -3643,6 +4297,145 @@ def create_app(
       } catch (e) {
         console.error(e);
       }
+    }
+
+    async function loadLibrary() {
+      try {
+        const cat = currentLibraryFilter || 'all';
+        const search = currentLibrarySearch || '';
+        const url = `/api/library?category=${cat}&search=${encodeURIComponent(search)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        currentLibraryData = data;
+        renderLibrary(data);
+      } catch (e) {
+        console.error('Error loading library:', e);
+      }
+    }
+
+    function setLibraryFilter(filter) {
+      currentLibraryFilter = filter;
+      ['all', 'tv', 'movie'].forEach(f => {
+        const btn = document.getElementById(`lib-filter-${f}`);
+        if (btn) {
+          if (f === filter) {
+            btn.className = f === 'tv' ? 'btn btn-emerald btn-sm' : (f === 'movie' ? 'btn btn-accent btn-sm' : 'btn btn-accent btn-sm');
+          } else {
+            btn.className = 'btn btn-outline btn-sm';
+          }
+        }
+      });
+      loadLibrary();
+    }
+
+    let searchDebounce = null;
+    function onLibrarySearchChange(val) {
+      currentLibrarySearch = (val || '').trim();
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        loadLibrary();
+      }, 250);
+    }
+
+    async function rescanLibraryDisk() {
+      const btn = document.getElementById('btn-library-rescan');
+      const orig = btn ? btn.innerHTML : '🔄 Rescan Disk Library';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="loading-spinner"></span> Scanning disk...`;
+      }
+      showToast('🔍 Scanning library storage disks for shows and movies...');
+      try {
+        const res = await fetch('/api/library/rescan', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Rescan failed');
+        showToast(`✓ Library synced: ${data.shows_synced} shows, ${data.movies_synced} movies discovered!`);
+        await loadLibrary();
+      } catch (e) {
+        showToast('Error rescanning library: ' + (e.message || e));
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = orig;
+        }
+      }
+    }
+
+    function renderLibrary(data) {
+      const totalShows = data.total_shows || 0;
+      const totalMovies = data.total_movies || 0;
+      const totalAll = totalShows + totalMovies;
+
+      const badgeShows = document.getElementById('lib-badge-shows');
+      const badgeMovies = document.getElementById('lib-badge-movies');
+      const cntAll = document.getElementById('lib-cnt-all');
+      const cntTv = document.getElementById('lib-cnt-tv');
+      const cntMovie = document.getElementById('lib-cnt-movie');
+
+      if (badgeShows) badgeShows.textContent = `${totalShows} Shows`;
+      if (badgeMovies) badgeMovies.textContent = `${totalMovies} Movies`;
+      if (cntAll) cntAll.textContent = totalAll;
+      if (cntTv) cntTv.textContent = totalShows;
+      if (cntMovie) cntMovie.textContent = totalMovies;
+
+      const grid = document.getElementById('library-items-grid');
+      const empty = document.getElementById('library-empty');
+      if (!grid) return;
+
+      const items = [];
+      if (currentLibraryFilter === 'all' || currentLibraryFilter === 'tv') {
+        (data.shows || []).forEach(s => items.push({ ...s, is_tv: true }));
+      }
+      if (currentLibraryFilter === 'all' || currentLibraryFilter === 'movie') {
+        (data.movies || []).forEach(m => items.push({ ...m, is_tv: false }));
+      }
+
+      items.sort((a, b) => a.title.localeCompare(b.title));
+
+      if (items.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.style.display = 'block';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+
+      grid.innerHTML = items.map(item => {
+        const isTv = item.is_tv;
+        const catBadge = isTv ? '<span class="tag tag-show">TV SHOW</span>' : '<span class="tag tag-movie">MOVIE</span>';
+        const yearHtml = item.year ? `<span style="font-size: 0.75rem; color: var(--text-muted);">(${item.year})</span>` : '';
+        const statsHtml = isTv
+          ? `${item.item_count} episode${item.item_count === 1 ? '' : 's'} • ${item.seasons_count || 1} season${item.seasons_count === 1 ? '' : 's'}`
+          : `${item.item_count} file${item.item_count === 1 ? '' : 's'}`;
+        const icon = isTv ? '📺' : '🎬';
+        const posterImg = item.poster_url
+          ? `<img src="${escapeHtml(item.poster_url)}" alt="${escapeHtml(item.title)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 1.5rem;">${icon}</div>`
+          : `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">${icon}</div>`;
+
+        return `
+          <div class="library-card" style="background: var(--surface-light); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <div style="width: 50px; height: 75px; flex-shrink: 0; background: rgba(0,0,0,0.3); border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border);">
+                ${posterImg}
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-title, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(item.title)}">
+                  ${escapeHtml(item.title)}
+                </div>
+                <div style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.25rem; flex-wrap: wrap;">
+                  ${catBadge}
+                  ${yearHtml}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                  ${statsHtml}
+                </div>
+              </div>
+            </div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); word-break: break-all; background: rgba(0,0,0,0.25); padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: monospace;">
+              📁 ${escapeHtml(item.destination_folder)}
+            </div>
+          </div>
+        `;
+      }).join('');
     }
 
     async function loadQuarantine() {

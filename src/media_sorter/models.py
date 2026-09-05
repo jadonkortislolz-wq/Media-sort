@@ -157,3 +157,28 @@ class ConfigAudit(Base):
     __table_args__ = (
         Index("ix_config_loaded", "loaded_at"),
     )
+
+
+class LibraryItem(Base):
+    """Tracks known shows and movies in the user's library for automated routing and cataloging."""
+
+    __tablename__ = "library_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(256), nullable=False)
+    category = Column(String(32), nullable=False)  # "tv" or "movie"
+    year = Column(Integer, nullable=True)
+    destination_folder = Column(String(1024), nullable=False)
+    poster_url = Column(String(1024), nullable=True)
+    item_count = Column(Integer, default=0, nullable=False)
+    seasons_count = Column(Integer, default=0, nullable=False)
+    first_detected = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    last_updated = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    extra_info = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("title", "category", name="uq_library_title_category"),
+        Index("ix_library_category", "category"),
+        Index("ix_library_title", "title"),
+    )
+

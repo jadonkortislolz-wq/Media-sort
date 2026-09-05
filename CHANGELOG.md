@@ -5,6 +5,37 @@ All notable changes to the Media Sorter project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-09-05
+
+### Added
+- **Library Catalog & Show/Movie Management (`📚 Library`)**:
+  - Added a dedicated top-level **📚 Library** view with full catalog tracking of all indexed shows and movies across storage drives.
+  - Interactive selector buttons to switch between **📺 Shows**, **🎬 Movies**, and **📂 All**, with live count badges.
+  - Real-time instant search input to filter titles as you type.
+  - Disk scanning synchronization (`POST /api/library/rescan`) that indexes directory trees, episode counts, seasons, and technical metadata.
+  - Persistent database tracking via `LibraryItem` table model with unique constraint protection and last-updated tracking.
+- **Automatic Show Memory Routing**:
+  - Whenever a new show is detected or sorted, it is automatically cataloged in the Library.
+  - When inspecting downloads or analyzing files, media sorter queries known shows from the library and automatically routes incoming media (such as extras, behind-the-scenes, specials, and unbracketed files) into that show's folder (`SHOWS_DIR / <Show Name>`).
+- **Unsure File Grouping Dropdowns**:
+  - Automatically clusters non-show files into dedicated collapsible dropdown cards instead of dumping them into a flat singles list:
+    - **Shared Subfolder Groups**: Files sharing a common subfolder in downloads form their own group card (e.g. `📁 Shared Subfolder: Dexter Extras (5 files)`).
+    - **Matching Name Prefix Groups**: Files sharing a common clean title stem or prefix form their own group card (e.g. `🏷️ Matching Name Prefix: Blood, Guts and Body Parts (2 files)`).
+    - Only truly lone, isolated files remain in the singles media list.
+  - Group action buttons:
+    - `⚡ Sort Group`: Sorts all files in the group directly via `POST /api/files/sort-group`.
+    - `✏️ Set Show/Movie for Group`: Opens the manual assignment modal for the entire group, allowing one-click bulk categorization to Movies or TV Shows.
+- **Group Sorting Endpoint (`POST /api/files/sort-group`)**:
+  - Server endpoint that batch-processes unsure groups of files with show name override or movie destination formatting, atomic movement, and automatic library catalog registration.
+
+### Fixed
+- **Anime Fansub Adjacent Brackets Regex**:
+  - Fixed `RE_ANIME_RELEASE` regex to support adjacent bracket tags without spaces (e.g. `[Erai-raws] Bleach - 001 [1080p][MultiSub][EF0AF7BA].mkv`), ensuring anime episode fan releases are accurately classified.
+- **Prevent Anime Episode Matching into SxxExx**:
+  - Added negative lookahead `(?![xX\w])` to prevent episodic titles like `Game of Thrones - 1x09 - Baelor` from prematurely matching `1` as an anime episode instead of `Season 1 Episode 9`.
+- **Fast Local Artwork & Responsive Downloads Inspection**:
+  - Updated `fetch_show_poster` with `allow_network=False` during folder inspection so downloads scanning completes in under 2 seconds rather than stalling on synchronous external network queries.
+
 ## [1.0.6] - 2026-09-05
 
 ### Added
