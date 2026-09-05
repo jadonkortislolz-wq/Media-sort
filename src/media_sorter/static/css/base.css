@@ -1,0 +1,200 @@
+/* Base CSS for Media Sorter UI */
+:root {
+  --bg: #ffffff;               /* background */
+  --card-bg: #f9f9f9;           /* cards */
+  --card-hover: #eaeaea;       
+  --border: #dddddd;
+  --text: #222222;
+  --text-muted: #555555;
+  --accent: #0066ff;           /* default accent */
+  --accent-hover: #0044cc;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}
+
+[data-theme="minimalistic"] {
+  /* Light, clean look */
+  --bg: #fafafa;
+  --card-bg: #ffffff;
+  --card-hover: #f0f0f0;
+  --border: #e0e0e0;
+  --text: #111111;
+  --text-muted: #777777;
+  --accent: #0077c2;
+  --accent-hover: #005599;
+}
+
+[data-theme="high-visibility"] {
+  /* Dark with bright accent for strong contrast */
+  --bg: #111111;
+  --card-bg: #1a1a1a;
+  --card-hover: #262626;
+  --border: #333333;
+  --text: #eeeeee;
+  --text-muted: #bbbbbb;
+  --accent: #ffdd00;   /* bright yellow */
+  --accent-hover: #ffbb00;
+}
+
+[data-theme="pastel"] {
+  --bg: #fff8f0;
+  --card-bg: #ffffff;
+  --card-hover: #f0e6e0;
+  --border: #e6d8d1;
+  --text: #453636;
+  --text-muted: #7a5d5d;
+  --accent: #ff8c94;   /* soft pink */
+  --accent-hover: #ff6b78;
+}
+
+[data-theme="grayscale"] {
+  --bg: #f5f5f5;
+  --card-bg: #ffffff;
+  --card-hover: #e0e0e0;
+  --border: #c0c0c0;
+  --text: #333333;
+  --text-muted: #777777;
+  --accent: #555555;
+  --accent-hover: #444444;
+}
+
+[data-theme="cyber"] {
+  /* Retain original cyber‑dark palette but with new ID */
+  --bg: #090d16;
+  --card-bg: #0f172a;
+  --card-hover: #1e293b;
+  --border: #334155;
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-hover: #0284c7;
+}
+
+[data-theme="bios-amber"] {
+  --bg: #0c0800;
+  --card-bg: #181100;
+  --card-hover: #261b02;
+  --border: #4d3800;
+  --text: #ffb833;
+  --text-muted: #b37e1a;
+  --accent: #ff9900;
+  --accent-hover: #ffad33;
+}
+
+[data-theme="vapor-glitch"] {
+  --bg: #080312;
+  --card-bg: #130a24;
+  --card-hover: #1f113a;
+  --border: #38195a;
+  --text: #00f5d4;
+  --text-muted: #b388ff;
+  --accent: #f72585;
+  --accent-hover: #b5179e;
+}
+
+[data-theme="mossy-stone"] {
+  --bg: #111813;
+  --card-bg: #19241c;
+  --card-hover: #223227;
+  --border: #2d4234;
+  --text: #d2e0d5;
+  --text-muted: #859e8b;
+  --accent: #52b788;
+  --accent-hover: #40916c;
+}
+
+[data-theme="crimson-eclipse"] {
+  --bg: #0d0608;
+  --card-bg: #190c10;
+  --card-hover: #261217;
+  --border: #441822;
+  --text: #e8d0d5;
+  --text-muted: #a37581;
+  --accent: #ff4d6d;
+  --accent-hover: #c9184a;
+}
+
+[data-theme="blueprint-draft"] {
+  --bg: #0b1d3a;
+  --card-bg: #102a54;
+  --card-hover: #173b75;
+  --border: #1f4a91;
+  --text: #e2edfd;
+  --text-muted: #8db5e6;
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+}
+
+/* General layout */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+header.app-header, footer.app-footer {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+main.app-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  flex: 1 1 300px;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal.hidden { display: none; }
+.modal-content {
+  background: var(--card-bg);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  min-width: 260px;
+}
+
+/* Compact mode tweaks */
+[data-compact="true"] header.app-header, [data-compact="true"] footer.app-footer {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+[data-compact="true"] .panel {
+  padding: 0.5rem;
+  font-size: 0.85rem;
+}

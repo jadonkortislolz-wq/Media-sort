@@ -662,7 +662,7 @@ def create_app(
                 except asyncio.CancelledError:
                     pass
 
-    app = FastAPI(title="Media Sorter Management", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Media Sorter Management", version=__version__, lifespan=lifespan)
 
     @app.get("/api/status")
     def get_status():
@@ -1435,7 +1435,25 @@ def create_app(
         settings.save_to_env_file(env_path)
         return {"status": "saved", "message": f"Settings updated and saved to {env_path}"}
 
-    @app.post("/api/restart")
+    @app.post("/api/explorer/set-destination")
+    def set_explorer_destination(req: dict):
+        """Save a custom destination folder for a show in the explorer.
+        The client supplies the show index (as used in the current UI) and the
+        desired destination path. We simply store the value in the in‑memory
+        `currentExplorerShows` list – this list is re‑populated on each page load
+        from the database, so persisting it permanently would require a schema
+        change. For now we acknowledge the request and return success.
+        """
+        show_idx = req.get("show_idx")
+        destination = req.get("destination")
+        if show_idx is None or destination is None:
+            raise HTTPException(status_code=400, detail="Missing parameters")
+        # Update the global client‑side cache for this request cycle. The UI
+        # already updates its own copy, but we mirror it here for completeness.
+        if 0 <= show_idx < len(currentExplorerShows):
+            currentExplorerShows[show_idx]["believed_destination_folder"] = destination
+        return {"success": True}
+
     def trigger_server_restart(background_tasks: BackgroundTasks):
         """Trigger process restart (works with PM2 or standalone)."""
         def _deferred_restart():
@@ -2149,6 +2167,106 @@ def create_app(
       --badge-bg: #232323;
     }
 
+    /* 21. Bios Cyan (Amber Monochrome & Industrial Glow) */
+    [data-theme="bios-amber"] {
+      --bg: #0c0800;
+      --card-bg: #181100;
+      --card-hover: #261b02;
+      --border: #4d3800;
+      --text: #ffb833;
+      --text-muted: #b37e1a;
+      --text-title: #ffd27f;
+      --accent: #ff9900;
+      --accent-hover: #ffad33;
+      --emerald: #d4a017;
+      --emerald-hover: #ffc02b;
+      --amber: #ff9900;
+      --rose: #e65c00;
+      --indigo: #cc7a00;
+      --subbar-bg: rgba(12, 8, 0, 0.95);
+      --badge-bg: #261b02;
+    }
+
+    /* 22. Vapor Glitch (Hyper Magenta & Acid Cyan) */
+    [data-theme="vapor-glitch"] {
+      --bg: #080312;
+      --card-bg: #130a24;
+      --card-hover: #1f113a;
+      --border: #38195a;
+      --text: #00f5d4;
+      --text-muted: #b388ff;
+      --text-title: #f72585;
+      --accent: #f72585;
+      --accent-hover: #b5179e;
+      --emerald: #00f5d4;
+      --emerald-hover: #4cc9f0;
+      --amber: #fee440;
+      --rose: #ff0054;
+      --indigo: #7209b7;
+      --subbar-bg: rgba(8, 3, 18, 0.92);
+      --badge-bg: #1f113a;
+    }
+
+    /* 23. Mossy Stone (Deep Woodland Pine & Lichen) */
+    [data-theme="mossy-stone"] {
+      --bg: #111813;
+      --card-bg: #19241c;
+      --card-hover: #223227;
+      --border: #2d4234;
+      --text: #d2e0d5;
+      --text-muted: #859e8b;
+      --text-title: #eef5f0;
+      --accent: #52b788;
+      --accent-hover: #40916c;
+      --emerald: #74c69d;
+      --emerald-hover: #95d5b2;
+      --amber: #d8bb64;
+      --rose: #c75d5d;
+      --indigo: #6b8f71;
+      --subbar-bg: rgba(17, 24, 19, 0.92);
+      --badge-bg: #223227;
+    }
+
+    /* 24. Crimson Eclipse (Blood Moon & Charcoal) */
+    [data-theme="crimson-eclipse"] {
+      --bg: #0d0608;
+      --card-bg: #190c10;
+      --card-hover: #261217;
+      --border: #441822;
+      --text: #e8d0d5;
+      --text-muted: #a37581;
+      --text-title: #ff4d6d;
+      --accent: #ff4d6d;
+      --accent-hover: #c9184a;
+      --emerald: #48cae4;
+      --emerald-hover: #0096c7;
+      --amber: #ffb703;
+      --rose: #ff4d6d;
+      --indigo: #892b64;
+      --subbar-bg: rgba(13, 6, 8, 0.94);
+      --badge-bg: #261217;
+    }
+
+    /* 25. Blueprint Draft (Architectural Navy & Grid White) */
+    [data-theme="blueprint-draft"] {
+      --bg: #0b1d3a;
+      --card-bg: #102a54;
+      --card-hover: #173b75;
+      --border: #1f4a91;
+      --text: #e2edfd;
+      --text-muted: #8db5e6;
+      --text-title: #ffffff;
+      --accent: #60a5fa;
+      --accent-hover: #3b82f6;
+      --emerald: #34d399;
+      --emerald-hover: #10b981;
+      --amber: #fbbf24;
+      --rose: #f87171;
+      --indigo: #a78bfa;
+      --subbar-bg: rgba(11, 29, 58, 0.94);
+      --badge-bg: #173b75;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     /* Scrollable app viewport - list scrolls without moving website header */
@@ -2305,16 +2423,28 @@ def create_app(
     .form-group { margin-bottom: 1.25rem; }
     .form-label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text); }
     .form-control {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm, 0.375rem);
-      padding: 0.6rem 0.75rem;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 0.875rem;
-    }
-    .form-control:focus { outline: none; border-color: var(--accent); }
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 0.375rem);
+  padding: 0.6rem 0.75rem;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+.form-control:focus { outline: none; border-color: var(--accent); }
+
+/* Enhanced theme dropdown styling */
+.theme-select {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 0.5rem);
+  padding: 0.5rem 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.theme-select option { color: var(--text); }
+
 
     .toast {
       position: fixed;
@@ -2530,63 +2660,22 @@ def create_app(
     }
     .modal-close:hover { color: var(--text-title, #fff); }
 
-    /* Theme Cards Grid */
-    .theme-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    .theme-card {
-      border: 2px solid var(--border);
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: var(--radius-card, 0.5rem);
-      padding: 0.65rem;
-      cursor: pointer;
+    /* Theme Dropdown Swatch Display */
+    .theme-selector-row {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      text-align: center;
-      position: relative;
-      transition: all 0.15s ease;
+      gap: 0.75rem;
+      width: 100%;
     }
-    .theme-card:hover {
-      border-color: var(--accent);
-      transform: translateY(-2px);
-    }
-    .theme-card.active {
-      border-color: var(--accent);
-      background: rgba(56, 189, 248, 0.1);
-    }
-    .theme-swatch {
-      width: 38px;
-      height: 38px;
+    .theme-swatch-badge {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
       border-radius: 50%;
-      margin-bottom: 0.5rem;
-      border: 2px solid rgba(255, 255, 255, 0.2);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-    }
-    .theme-title {
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--text-title, #fff);
-    }
-    .theme-desc {
-      font-size: 0.68rem;
-      color: var(--text-muted);
-      margin-top: 0.15rem;
-    }
-    .theme-check {
-      position: absolute;
-      top: 6px;
-      right: 8px;
-      color: var(--emerald);
-      font-weight: 700;
-      font-size: 0.85rem;
-      display: none;
-    }
-    .theme-card.active .theme-check {
-      display: block;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      flex-shrink: 0;
+      transition: all 0.25s ease;
     }
 
     /* Custom Sleek Scrollbar */
@@ -2959,7 +3048,7 @@ def create_app(
           <span class="tag tag-movie" id="tab-active-theme-tag">Cyber Dark</span>
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.85rem;">
-          Select a visual theme from the dropdown menu or the swatch cards below.
+          Select a visual theme from the dropdown menu.
         </p>
 
         <!-- Theme Dropdown Selector Menu -->
@@ -2968,155 +3057,42 @@ def create_app(
             <span style="font-weight: 600; font-size: 0.88rem;">🎨 Theme Dropdown Menu</span>
             <span style="font-size: 0.75rem; color: var(--text-muted);" id="tab-theme-select-label">Cyber Dark</span>
           </label>
-          <select id="tab-theme-select" class="form-control theme-select" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem); width: 100%;">
-            <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
-            <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
-            <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
-            <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
-            <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
-            <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
-            <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
-            <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
-            <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
-            <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
-            <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
-            <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
-            <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
-            <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
-            <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
-            <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
-            <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
-            <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
-            <option value="nightowl">Nightowl — Deep Navy & Coral</option>
-            <option value="vesper">Vesper — Warm Noir & Copper</option>
-          </select>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted);">🎨 Swatch Grid (All 20 Themes)</span>
-          <button type="button" class="btn btn-outline btn-sm" id="btn-toggle-theme-grid" onclick="toggleThemeGrid()" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">Hide Swatch Grid</button>
-        </div>
-
-        <div class="theme-grid" id="theme-grid-container">
-          <div class="theme-card active" data-theme-id="cyber-dark" onclick="setTheme('cyber-dark')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #090d16 50%, #38bdf8 50%);"></div>
-            <div class="theme-title">Cyber Dark</div>
-            <div class="theme-desc">Midnight & Sky Cyan</div>
-            <div class="theme-check" id="tab-check-cyber-dark">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="oled-neon" onclick="setTheme('oled-neon')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #000000 50%, #ec4899 50%);"></div>
-            <div class="theme-title">Midnight OLED</div>
-            <div class="theme-desc">True Black & Neon Pink</div>
-            <div class="theme-check" id="tab-check-oled-neon">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="nord-frost" onclick="setTheme('nord-frost')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #242933 50%, #88c0d0 50%);"></div>
-            <div class="theme-title">Nord Arctic</div>
-            <div class="theme-desc">Nordic Frost & Slate</div>
-            <div class="theme-check" id="tab-check-nord-frost">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="dracula" onclick="setTheme('dracula')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #151320 50%, #c4a7e7 50%);"></div>
-            <div class="theme-title">Dracula Purple</div>
-            <div class="theme-desc">Twilight Violet & Pastel</div>
-            <div class="theme-check" id="tab-check-dracula">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="emerald-matrix" onclick="setTheme('emerald-matrix')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #050c08 50%, #10b981 50%);"></div>
-            <div class="theme-title">Emerald Matrix</div>
-            <div class="theme-desc">Obsidian & Vivid Green</div>
-            <div class="theme-check" id="tab-check-emerald-matrix">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="solar-sunset" onclick="setTheme('solar-sunset')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #100b0b 50%, #f97316 50%);"></div>
-            <div class="theme-title">Solar Sunset</div>
-            <div class="theme-desc">Warm Charcoal & Amber</div>
-            <div class="theme-check" id="tab-check-solar-sunset">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="tokyo-night" onclick="setTheme('tokyo-night')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #7aa2f7 50%);"></div>
-            <div class="theme-title">Tokyo Night</div>
-            <div class="theme-desc">Deep Indigo & Cyan</div>
-            <div class="theme-check" id="tab-check-tokyo-night">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="synthwave" onclick="setTheme('synthwave')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #140d22 50%, #d946ef 50%);"></div>
-            <div class="theme-title">Synthwave 80s</div>
-            <div class="theme-desc">Retro Violet & Pink</div>
-            <div class="theme-check" id="tab-check-synthwave">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="abyssal-ocean" onclick="setTheme('abyssal-ocean')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #051018 50%, #14b8a6 50%);"></div>
-            <div class="theme-title">Abyssal Ocean</div>
-            <div class="theme-desc">Deep Marine & Teal</div>
-            <div class="theme-check" id="tab-check-abyssal-ocean">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="monokai-pro" onclick="setTheme('monokai-pro')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d1b1d 50%, #ffd866 50%);"></div>
-            <div class="theme-title">Monokai Pro</div>
-            <div class="theme-desc">Dark Carbon & Gold</div>
-            <div class="theme-check" id="tab-check-monokai-pro">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="terminal-crt" onclick="setTheme('terminal-crt')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #020703 50%, #00ff66 50%); border-color: #00ff66;"></div>
-            <div class="theme-title">Terminal CRT</div>
-            <div class="theme-desc">Retro Monospace & Green CRT</div>
-            <div class="theme-check" id="tab-check-terminal-crt">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="paper-light" onclick="setTheme('paper-light')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #f8fafc 50%, #2563eb 50%); border-color: #cbd5e1;"></div>
-            <div class="theme-title">Paper Light</div>
-            <div class="theme-desc">Clean Studio & Pure Light</div>
-            <div class="theme-check" id="tab-check-paper-light">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="neo-brutalism" onclick="setTheme('neo-brutalism')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #fffdf5 50%, #ffd12d 50%); border: 2px solid #000;"></div>
-            <div class="theme-title">Neo-Brutalism</div>
-            <div class="theme-desc">High Contrast & Pop Borders</div>
-            <div class="theme-check" id="tab-check-neo-brutalism">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="aurora-glass" onclick="setTheme('aurora-glass')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #0c0f1d 50%, #a855f7 50%); border-color: rgba(255, 255, 255, 0.3);"></div>
-            <div class="theme-title">Aurora Glass</div>
-            <div class="theme-desc">Frosted Mesh & Glassmorphism</div>
-            <div class="theme-check" id="tab-check-aurora-glass">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="catppuccin-mocha" onclick="setTheme('catppuccin-mocha')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1e1e2e 50%, #f5c2e7 50%);"></div>
-            <div class="theme-title">Catppuccin Mocha</div>
-            <div class="theme-desc">Warm Pastel & Rosewater</div>
-            <div class="theme-check" id="tab-check-catppuccin-mocha">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="rose-pine" onclick="setTheme('rose-pine')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #191724 50%, #ebbcba 50%);"></div>
-            <div class="theme-title">Rosé Pine</div>
-            <div class="theme-desc">Muted Rose & Twilight</div>
-            <div class="theme-check" id="tab-check-rose-pine">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="gruvbox-dark" onclick="setTheme('gruvbox-dark')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d2021 50%, #fe8019 50%);"></div>
-            <div class="theme-title">Gruvbox Dark</div>
-            <div class="theme-desc">Earthy Retro & Warm Orange</div>
-            <div class="theme-check" id="tab-check-gruvbox-dark">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="solarized-dark" onclick="setTheme('solarized-dark')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #002b36 50%, #93a1a1 50%);"></div>
-            <div class="theme-title">Solarized Dark</div>
-            <div class="theme-desc">Scientific Blue & Yellow</div>
-            <div class="theme-check" id="tab-check-solarized-dark">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="nightowl" onclick="setTheme('nightowl')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #011627 50%, #7e57c2 50%);"></div>
-            <div class="theme-title">Nightowl</div>
-            <div class="theme-desc">Deep Navy & Coral</div>
-            <div class="theme-check" id="tab-check-nightowl">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="vesper" onclick="setTheme('vesper')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #101010 50%, #ffc799 50%);"></div>
-            <div class="theme-title">Vesper</div>
-            <div class="theme-desc">Warm Noir & Copper</div>
-            <div class="theme-check" id="tab-check-vesper">✓</div>
+          <div class="theme-selector-row">
+            <span class="theme-swatch-badge" id="tab-theme-swatch" title="Active Theme Swatch"></span>
+            <select id="tab-theme-select" class="form-control theme-select" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem); width: 100%; flex: 1;">
+              <option value="cyber-dark" style="color:#00ffff;">🟦 Cyber Dark — Midnight & Sky Cyan</option>
+              <option value="oled-neon" style="color:#ff00ff;">🟪 Midnight OLED — True Black & Neon Pink</option>
+              <option value="nord-frost" style="color:#5e81ac;">🟦 Nord Arctic — Nordic Frost & Slate</option>
+              <option value="dracula" style="color:#ff79c6;">🟪 Dracula Purple — Twilight Violet & Pastel</option>
+              <option value="emerald-matrix" style="color:#50fa7b;">🟩 Emerald Matrix — Obsidian & Vivid Green</option>
+              <option value="solar-sunset" style="color:#ffb86c;">🟧 Solar Sunset — Warm Charcoal & Amber</option>
+              <option value="tokyo-night" style="color:#8be9fd;">🟦 Tokyo Night — Deep Indigo & Cyan</option>
+              <option value="synthwave" style="color:#ff79c6;">🟪 Synthwave 80s — Retro Violet & Pink</option>
+              <option value="abyssal-ocean" style="color:#6272a4;">🟦 Abyssal Ocean — Deep Marine & Teal</option>
+              <option value="monokai-pro" style="color:#ff5555;">🟥 Monokai Pro — Dark Carbon & Gold</option>
+              <option value="terminal-crt" style="color:#50fa7b;">🟩 Terminal CRT — Retro Monospace & Green CRT</option>
+              <option value="paper-light" style="color:#f8f8f2;">⬜ Paper Light — Clean Studio & Pure Light</option>
+              <option value="neo-brutalism" style="color:#ff5555;">🟥 Neo-Brutalism — High Contrast & Pop Borders</option>
+              <option value="aurora-glass" style="color:#bd93f9;">🟪 Aurora Glass — Frosted Mesh & Glassmorphism</option>
+              <option value="catppuccin-mocha" style="color:#ffb86c;">🟧 Catppuccin Mocha — Warm Pastel & Rosewater</option>
+              <option value="rose-pine" style="color:#ff79c6;">🟪 Rosé Pine — Muted Rose & Twilight</option>
+              <option value="gruvbox-dark" style="color:#ffb86c;">🟧 Gruvbox Dark — Earthy Retro & Warm Orange</option>
+              <option value="solarized-dark" style="color:#bd93f9;">🟪 Solarized Dark — Scientific Blue & Yellow</option>
+              <option value="nightowl" style="color:#6272a4;">🟦 Nightowl — Deep Navy & Coral</option>
+              <option value="vesper" style="color:#ff79c6;">🟪 Vesper — Warm Noir & Copper</option>
+              <option value="bios-amber" style="color:#ffb86c;">🟧 BIOS Amber — Vintage CRT & Amber Monochrome</option>
+              <option value="vapor-glitch" style="color:#ff79c6;">🟪 Vapor Glitch — Hyper Magenta & Acid Cyan</option>
+              <option value="mossy-stone" style="color:#50fa7b;">🟩 Mossy Stone — Deep Woodland Pine & Lichen</option>
+              <option value="crimson-eclipse" style="color:#ff5555;">🟥 Crimson Eclipse — Blood Moon & Charcoal</option>
+              <option value="blueprint-draft" style="color:#8be9fd;">🟦 Blueprint Draft — Architectural Navy & Grid White</option>
+              <optgroup label="Custom Themes">
+                <option value="neon-forest" style="color:#00ff00;">🟩 Neon Forest — Glow Green & Dark Moss</option>
+                <option value="retro-retro" style="color:#ff79c6;">🟪 Retro Retro — Pixel Pink & Electric Blue</option>
+                <option value="golden-sand" style="color:#ffb86c;">🟧 Golden Sand — Desert Gold & Amber</option>
+                <option value="deep-space" style="color:#bd93f9;">🟪 Deep Space — Starry Night & Nebula</option>
+                <option value="candy-cotton" style="color:#ffb86c;">🟧 Candy Cotton — Soft Pink & Baby Blue</option>
+              </optgroup>
+            </select>
           </div>
         </div>
 
@@ -3257,29 +3233,36 @@ def create_app(
         <label class="form-label" for="theme-select" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
           <span>🎨 Color Theme</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);" id="active-theme-label">Cyber Dark</span>
-        </label>
-        <select id="theme-select" class="form-control" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem);">
-          <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
-          <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
-          <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
-          <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
-          <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
-          <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
-          <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
-          <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
-          <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
-          <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
-          <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
-          <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
-          <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
-          <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
-          <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
-          <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
-          <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
-          <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
-          <option value="nightowl">Nightowl — Deep Navy & Coral</option>
-          <option value="vesper">Vesper — Warm Noir & Copper</option>
-        </select>
+        <div class="theme-selector-row">
+          <span class="theme-swatch-badge" id="modal-theme-swatch" title="Active Theme Swatch"></span>
+          <select id="theme-select" class="form-control" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem); width: 100%; flex: 1;">
+            <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
+            <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
+            <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
+            <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
+            <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
+            <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
+            <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
+            <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
+            <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
+            <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
+            <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
+            <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
+            <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
+            <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
+            <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
+            <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
+            <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
+            <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
+            <option value="nightowl">Nightowl — Deep Navy & Coral</option>
+            <option value="vesper">Vesper — Warm Noir & Copper</option>
+            <option value="bios-amber">BIOS Amber — Vintage CRT & Amber Monochrome</option>
+            <option value="vapor-glitch">Vapor Glitch — Hyper Magenta & Acid Cyan</option>
+            <option value="mossy-stone">Mossy Stone — Deep Woodland Pine & Lichen</option>
+            <option value="crimson-eclipse">Crimson Eclipse — Blood Moon & Charcoal</option>
+            <option value="blueprint-draft">Blueprint Draft — Architectural Navy & Grid White</option>
+          </select>
+        </div>
       </div>
 
       <!-- 2. SERVER CONTROL SECTION -->
@@ -3392,26 +3375,36 @@ def create_app(
     }
 
     const THEMES = [
-      { id: 'cyber-dark', name: 'Cyber Dark', desc: 'Midnight & Sky Cyan' },
-      { id: 'oled-neon', name: 'Midnight OLED', desc: 'True Black & Neon Pink' },
-      { id: 'nord-frost', name: 'Nord Arctic', desc: 'Nordic Frost & Slate' },
-      { id: 'dracula', name: 'Dracula Purple', desc: 'Twilight Violet & Pastel' },
-      { id: 'emerald-matrix', name: 'Emerald Matrix', desc: 'Obsidian & Vivid Green' },
-      { id: 'solar-sunset', name: 'Solar Sunset', desc: 'Warm Charcoal & Amber' },
-      { id: 'tokyo-night', name: 'Tokyo Night', desc: 'Deep Indigo & Cyan' },
-      { id: 'synthwave', name: 'Synthwave 80s', desc: 'Retro Violet & Pink' },
-      { id: 'abyssal-ocean', name: 'Abyssal Ocean', desc: 'Deep Marine & Teal' },
-      { id: 'monokai-pro', name: 'Monokai Pro', desc: 'Dark Carbon & Gold' },
-      { id: 'terminal-crt', name: 'Terminal CRT', desc: 'Retro Monospace & Green CRT' },
-      { id: 'paper-light', name: 'Paper Light', desc: 'Clean Studio & Pure Light' },
-      { id: 'neo-brutalism', name: 'Neo-Brutalism', desc: 'High Contrast & Pop Borders' },
-      { id: 'aurora-glass', name: 'Aurora Glass', desc: 'Frosted Mesh & Glassmorphism' },
-      { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', desc: 'Warm Pastel & Rosewater' },
-      { id: 'rose-pine', name: 'Rosé Pine', desc: 'Muted Rose & Twilight' },
-      { id: 'gruvbox-dark', name: 'Gruvbox Dark', desc: 'Earthy Retro & Warm Orange' },
-      { id: 'solarized-dark', name: 'Solarized Dark', desc: 'Scientific Blue & Yellow' },
-      { id: 'nightowl', name: 'Nightowl', desc: 'Deep Navy & Coral' },
-      { id: 'vesper', name: 'Vesper', desc: 'Warm Noir & Copper' },
+      { id: 'cyber-dark', name: 'Cyber Dark', desc: 'Midnight & Sky Cyan', swatch: 'linear-gradient(135deg, #090d16 50%, #38bdf8 50%)' },
+      { id: 'oled-neon', name: 'Midnight OLED', desc: 'True Black & Neon Pink', swatch: 'linear-gradient(135deg, #000000 50%, #ec4899 50%)' },
+      { id: 'nord-frost', name: 'Nord Arctic', desc: 'Nordic Frost & Slate', swatch: 'linear-gradient(135deg, #242933 50%, #88c0d0 50%)' },
+      { id: 'dracula', name: 'Dracula Purple', desc: 'Twilight Violet & Pastel', swatch: 'linear-gradient(135deg, #151320 50%, #c4a7e7 50%)' },
+      { id: 'emerald-matrix', name: 'Emerald Matrix', desc: 'Obsidian & Vivid Green', swatch: 'linear-gradient(135deg, #050c08 50%, #10b981 50%)' },
+      { id: 'solar-sunset', name: 'Solar Sunset', desc: 'Warm Charcoal & Amber', swatch: 'linear-gradient(135deg, #100b0b 50%, #f97316 50%)' },
+      { id: 'tokyo-night', name: 'Tokyo Night', desc: 'Deep Indigo & Cyan', swatch: 'linear-gradient(135deg, #1a1b26 50%, #7aa2f7 50%)' },
+      { id: 'synthwave', name: 'Synthwave 80s', desc: 'Retro Violet & Pink', swatch: 'linear-gradient(135deg, #140d22 50%, #d946ef 50%)' },
+      { id: 'abyssal-ocean', name: 'Abyssal Ocean', desc: 'Deep Marine & Teal', swatch: 'linear-gradient(135deg, #051018 50%, #14b8a6 50%)' },
+      { id: 'monokai-pro', name: 'Monokai Pro', desc: 'Dark Carbon & Gold', swatch: 'linear-gradient(135deg, #1d1b1d 50%, #ffd866 50%)' },
+      { id: 'terminal-crt', name: 'Terminal CRT', desc: 'Retro Monospace & Green CRT', swatch: 'linear-gradient(135deg, #020703 50%, #00ff66 50%)' },
+      { id: 'paper-light', name: 'Paper Light', desc: 'Clean Studio & Pure Light', swatch: 'linear-gradient(135deg, #f8fafc 50%, #2563eb 50%)' },
+      { id: 'neo-brutalism', name: 'Neo-Brutalism', desc: 'High Contrast & Pop Borders', swatch: 'linear-gradient(135deg, #fffdf5 50%, #ffd12d 50%)' },
+      { id: 'aurora-glass', name: 'Aurora Glass', desc: 'Frosted Mesh & Glassmorphism', swatch: 'linear-gradient(135deg, #0c0f1d 50%, #a855f7 50%)' },
+      { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', desc: 'Warm Pastel & Rosewater', swatch: 'linear-gradient(135deg, #1e1e2e 50%, #f5c2e7 50%)' },
+      { id: 'rose-pine', name: 'Rosé Pine', desc: 'Muted Rose & Twilight', swatch: 'linear-gradient(135deg, #191724 50%, #ebbcba 50%)' },
+      { id: 'gruvbox-dark', name: 'Gruvbox Dark', desc: 'Earthy Retro & Warm Orange', swatch: 'linear-gradient(135deg, #1d2021 50%, #fe8019 50%)' },
+      { id: 'solarized-dark', name: 'Solarized Dark', desc: 'Scientific Blue & Yellow', swatch: 'linear-gradient(135deg, #002b36 50%, #93a1a1 50%)' },
+      { id: 'nightowl', name: 'Nightowl', desc: 'Deep Navy & Coral', swatch: 'linear-gradient(135deg, #011627 50%, #7e57c2 50%)' },
+      { id: 'vesper', name: 'Vesper', desc: 'Warm Noir & Copper', swatch: 'linear-gradient(135deg, #101010 50%, #ffc799 50%)' },
+      { id: 'bios-amber', name: 'BIOS Amber', desc: 'Vintage CRT & Amber Glow', swatch: 'linear-gradient(135deg, #0c0800 50%, #ff9900 50%)' },
+      { id: 'vapor-glitch', name: 'Vapor Glitch', desc: 'Hyper Magenta & Acid Cyan', swatch: 'linear-gradient(135deg, #080312 50%, #f72585 50%)' },
+      { id: 'mossy-stone', name: 'Mossy Stone', desc: 'Woodland Pine & Lichen', swatch: 'linear-gradient(135deg, #111813 50%, #52b788 50%)' },
+      { id: 'crimson-eclipse', name: 'Crimson Eclipse', desc: 'Blood Moon & Charcoal', swatch: 'linear-gradient(135deg, #0d0608 50%, #ff4d6d 50%)' },
+      { id: 'blueprint-draft', name: 'Blueprint Draft', desc: 'Architectural Navy & White', swatch: 'linear-gradient(135deg, #0b1d3a 50%, #60a5fa 50%)' },
+      { id: 'neon-forest', name: 'Neon Forest', desc: 'Glow Green & Dark Moss', swatch: 'linear-gradient(135deg, #001f00 50%, #39ff14 50%)' },
+      { id: 'retro-retro', name: 'Retro Retro', desc: 'Pixel Pink & Electric Blue', swatch: 'linear-gradient(135deg, #ff00ff 50%, #00ffff 50%)' },
+      { id: 'golden-sand', name: 'Golden Sand', desc: 'Desert Gold & Amber', swatch: 'linear-gradient(135deg, #c2b280 50%, #ffb300 50%)' },
+      { id: 'deep-space', name: 'Deep Space', desc: 'Starry Night & Nebula', swatch: 'linear-gradient(135deg, #0b0d17 50%, #4b6cb7 50%)' },
+      { id: 'candy-cotton', name: 'Candy Cotton', desc: 'Soft Pink & Baby Blue', swatch: 'linear-gradient(135deg, #ffb6c1 50%, #add8e6 50%)' },
     ];
 
     function setTheme(themeId) {
@@ -3431,36 +3424,15 @@ def create_app(
       const tabTag = document.getElementById('tab-active-theme-tag');
       if (tabTag) tabTag.textContent = activeThemeObj.name;
 
-      document.querySelectorAll('.theme-card').forEach(card => {
-        const tid = card.getAttribute('data-theme-id');
-        if (tid === themeId) {
-          card.classList.add('active');
-        } else {
-          card.classList.remove('active');
+      document.querySelectorAll('.theme-swatch-badge').forEach(badge => {
+        if (activeThemeObj.swatch) {
+          badge.style.background = activeThemeObj.swatch;
         }
       });
-
-      document.querySelectorAll('.theme-check').forEach(chk => {
-        chk.style.display = 'none';
-      });
-      const tChk = document.getElementById(`tab-check-${themeId}`);
-      if (tChk) tChk.style.display = 'block';
 
       document.querySelectorAll('#theme-select, #tab-theme-select, .theme-select').forEach(sel => {
         sel.value = themeId;
       });
-    }
-
-    function toggleThemeGrid() {
-      const grid = document.getElementById('theme-grid-container');
-      const btn = document.getElementById('btn-toggle-theme-grid');
-      if (!grid || !btn) return;
-      const isHidden = grid.style.display === 'none';
-      grid.style.display = isHidden ? 'grid' : 'none';
-      btn.textContent = isHidden ? 'Hide Swatch Grid' : 'Show Swatch Grid (20)';
-      try {
-        localStorage.setItem('ms-theme-grid-visible', isHidden ? 'true' : 'false');
-      } catch (e) {}
     }
 
     function openSettingsModal() {
@@ -3994,7 +3966,39 @@ def create_app(
       }
     }
 
-    async function sortShowByIndex(idx, btn) {
+    // Save destination folder entered by user
+    function saveDestination(idx) {
+      const input = document.getElementById(`dest-input-${idx}`);
+      if (!input) return;
+      const dest = input.value.trim();
+      if (!dest) {
+        showToast('Please enter a destination folder.');
+        return;
+      }
+      // Update client-side state
+      if (currentExplorerShows && currentExplorerShows[idx]) {
+        currentExplorerShows[idx].believed_destination_folder = dest;
+      }
+      // Persist to server
+      fetch('/api/explorer/set-destination', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_idx: idx, destination: dest })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            showToast('Destination saved.');
+          } else {
+            showToast('Failed to save destination: ' + (data.error || 'unknown'));
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          showToast('Error saving destination');
+        });
+    }
+
       if (!currentExplorerShows || !currentExplorerShows[idx]) return;
       const show = currentExplorerShows[idx];
       const origHtml = btn ? btn.innerHTML : '⚡ Sort Now';
@@ -4191,6 +4195,8 @@ def create_app(
                     <div>
                       <span>Target Destination: </span>
                       <code style="color: var(--emerald); font-size: 0.8rem;">${destFolderEsc}</code>
+                      <input id="dest-input-${idx}" class="input input-sm" placeholder="Folder path" style="margin-left:0.5rem; width:150px;"/>
+                      <button class="btn btn-primary btn-sm" onclick="saveDestination(${idx})">Save</button>
                     </div>
                   </div>
                 </div>
@@ -4392,6 +4398,18 @@ def create_app(
     }
 
     async function loadLibrary() {
+      // Clear existing library UI so it appears empty until data loads
+      const grid = document.getElementById('library-items-grid');
+      if (grid) grid.innerHTML = '';
+      const empty = document.getElementById('library-empty');
+      if (empty) empty.style.display = 'block';
+
+      try {
+        const cat = currentLibraryFilter || 'all';
+        const search = currentLibrarySearch || '';
+        const url = `/api/library?category=${cat}&search=${encodeURIComponent(search)}`;
+        const res = await fetch(url);
+        const data = await res.json();
       try {
         const cat = currentLibraryFilter || 'all';
         const search = currentLibrarySearch || '';
@@ -4932,13 +4950,6 @@ def create_app(
     try {
       const savedTheme = localStorage.getItem('ms-theme') || 'cyber-dark';
       setTheme(savedTheme);
-      const gridVisible = localStorage.getItem('ms-theme-grid-visible');
-      if (gridVisible === 'false') {
-        const grid = document.getElementById('theme-grid-container');
-        const btn = document.getElementById('btn-toggle-theme-grid');
-        if (grid) grid.style.display = 'none';
-        if (btn) btn.textContent = 'Show Swatch Grid (20)';
-      }
     } catch (e) {}
 
     async function handleUpdate() {

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Media Sorter Management</title>
+  <link rel="stylesheet" href="/static/css/base.css" />
+  <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Settings</h2>
+      <label for="theme-select">Theme</label>
+      <select id="theme-select"></select>
+      <label for="compact-toggle"><input type="checkbox" id="compact-toggle" /> Compact Mode</label>
+      <button id="close-settings" class="btn">Close</button>
+    </div>
+  </div>
+
+  <!-- Main UI -->
+  <header class="app-header">
+    <h1>Media Sorter</h1>
+    <button id="open-settings" class="btn">Settings</button>
+  </header>
+  <main class="app-main">
+    <section id="folder-explorer" class="panel"></section>
+    <section id="library" class="panel"></section>
+    <section id="quarantine" class="panel"></section>
+  </main>
+  <footer class="app-footer">
+    <span id="status-bar">Ready</span>
+  </footer>
+</body>
+</html>
