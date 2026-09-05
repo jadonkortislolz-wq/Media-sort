@@ -4,6 +4,7 @@
 
 **High-performance, automated media classification and organization engine with defensive data safety, atomic operations, transactional rollback, and modern web UI.**
 
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
 [![SQLite WAL](https://img.shields.io/badge/SQLite-WAL%20Journaling-003B57.svg)](https://www.sqlite.org/wal.html)

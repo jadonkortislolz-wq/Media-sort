@@ -360,6 +360,7 @@ def create_app(
             shows_dir = settings.get_destination_path("tv")
 
             return {
+                "version": "1.0.0",
                 "status": "online",
                 "database": str(settings.get_database_path()),
                 "dry_run": settings.general.dry_run,
@@ -1235,7 +1236,7 @@ def create_app(
         <div class="brand">
           <div class="brand-icon">📂</div>
           <div>
-            <div class="brand-title">Media Sorter</div>
+            <div class="brand-title" style="display: flex; align-items: center; gap: 0.5rem;">Media Sorter <span style="font-size: 0.72rem; font-weight: 600; vertical-align: middle; background: rgba(56, 189, 248, 0.18); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.12rem 0.5rem; border-radius: 9999px;">v1.0.0</span></div>
             <div class="brand-subtitle">Automated Downloads Organizer (Movies & Shows)</div>
           </div>
         </div>

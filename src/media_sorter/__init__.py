@@ -1,1 +1,3 @@
-# Media sorter package
+"""Media Sorter package."""
+
+__version__ = "1.0.0"
