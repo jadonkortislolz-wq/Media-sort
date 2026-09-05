@@ -126,7 +126,7 @@ def list_files_in_dir(directory: Path) -> List[Dict[str, Any]]:
 
     for root, _, files in os.walk(directory):
         for f in files:
-            if f.lower().endswith(".txt"):
+            if f.lower().endswith((".txt", ".srt")):
                 continue
             p = Path(root) / f
             try:
@@ -450,7 +450,7 @@ def inspect_downloads_folder(
 
     for root, _, files in os.walk(directory):
         for f in files:
-            if f.lower().endswith(".txt"):
+            if f.lower().endswith((".txt", ".srt")):
                 continue
             p = Path(root) / f
             try:
@@ -4005,13 +4005,17 @@ def create_app(
       const pathElem = document.getElementById('path-downloads');
       if (pathElem) pathElem.textContent = downloads.path || '';
 
-      const allFiles = (downloads.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+      const isExcluded = f => {
+        const lower = (f.name || '').toLowerCase();
+        return lower.endsWith('.txt') || lower.endsWith('.srt');
+      };
+      const allFiles = (downloads.files || []).filter(f => !isExcluded(f));
       const totalFiles = downloads.total_files !== undefined ? downloads.total_files : allFiles.length;
       const shows = (downloads.shows || []).map(s => {
-        const filteredFiles = (s.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+        const filteredFiles = (s.files || []).filter(f => !isExcluded(f));
         return { ...s, files: filteredFiles, count: filteredFiles.length };
       }).filter(s => s.count > 0);
-      const singles = (downloads.singles || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+      const singles = (downloads.singles || []).filter(f => !isExcluded(f));
 
       currentExplorerShows = shows;
       currentExplorerSingles = singles;
@@ -4161,7 +4165,7 @@ def create_app(
       const unsureBadge = document.getElementById('unsure-groups-count-badge');
       const rawUnsureGroups = downloads.unsure_groups || [];
       const unsureGroups = rawUnsureGroups.map(g => {
-        const filtered = (g.files || []).filter(f => !f.name.toLowerCase().endsWith('.txt'));
+        const filtered = (g.files || []).filter(f => !isExcluded(f));
         return { ...g, files: filtered, count: filtered.length };
       }).filter(g => g.count > 0);
       currentExplorerUnsureGroups = unsureGroups;

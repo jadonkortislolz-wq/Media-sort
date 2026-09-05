@@ -199,6 +199,51 @@ def test_folder_explorer_excludes_txt_files(web_env):
     assert not any(f["name"].lower().endswith(".txt") for f in downloads_data["singles"])
 
 
+def test_folder_explorer_excludes_srt_files(web_env):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+    from media_sorter.server import inspect_downloads_folder, list_files_in_dir
+
+    # Create real media files alongside .srt subtitles
+    (downloads / "Avatar.2009.1080p.mkv").write_bytes(b"\x1aE\xdf\xa3" + b"\x00" * 100)
+    (downloads / "Avatar.2009.1080p.en.srt").write_text("1\n00:00:01 --> 00:00:03\nSubtitles\n")
+    (downloads / "random_track.SRT").write_text("sub")
+
+    sub_dir = downloads / "Show.Episode.Folder"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    (sub_dir / "Episode 01.mkv").write_bytes(b"\x1aE\xdf\xa3" + b"\x00" * 100)
+    (sub_dir / "Episode 01.srt").write_text("sub")
+    (shows / "Show.S01E01.en.srt").write_text("sub")
+
+    # 1. inspect_downloads_folder must exclude all .srt files
+    inspected = inspect_downloads_folder(downloads, settings)
+    for f in inspected["files"]:
+        assert not f["name"].lower().endswith(".srt")
+    for s in inspected["shows"]:
+        for f in s["files"]:
+            assert not f["name"].lower().endswith(".srt")
+    for g in inspected["unsure_groups"]:
+        for f in g["files"]:
+            assert not f["name"].lower().endswith(".srt")
+    for f in inspected["singles"]:
+        assert not f["name"].lower().endswith(".srt")
+
+    # 2. list_files_in_dir must exclude .srt files
+    shows_listed = list_files_in_dir(shows)
+    for f in shows_listed:
+        assert not f["name"].lower().endswith(".srt")
+
+    # 3. GET /api/files endpoint must exclude .srt files from folder explorer response
+    res = client.get("/api/files")
+    assert res.status_code == 200
+    data = res.json()
+    downloads_data = data["downloads"]
+    assert any(f["name"] == "Avatar.2009.1080p.mkv" for f in downloads_data["files"])
+    assert not any(f["name"].lower().endswith(".srt") for f in downloads_data["files"])
+    assert not any(f["name"].lower().endswith(".srt") for f in downloads_data["singles"])
+    assert not any(f["name"].lower().endswith(".srt") for s in downloads_data["shows"] for f in s["files"])
+    assert not any(f["name"].lower().endswith(".srt") for g in downloads_data["unsure_groups"] for f in g["files"])
+
+
 def test_delete_download_file_cleans_txt_and_parent_dir(web_env):
     client, settings, downloads, movies, shows, test_env_file = web_env
 
