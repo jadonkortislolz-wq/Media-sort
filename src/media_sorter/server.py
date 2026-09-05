@@ -2196,96 +2196,32 @@ def create_app(
 
       <!-- 1. THEMES SECTION -->
       <div class="form-group">
-        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+        <label class="form-label" for="theme-select" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
           <span>🎨 Color Theme</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);" id="active-theme-label">Cyber Dark</span>
         </label>
-        <div class="theme-grid">
-          <div class="theme-card active" data-theme-id="cyber-dark" onclick="setTheme('cyber-dark')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #090d16 50%, #38bdf8 50%);"></div>
-            <div class="theme-title">Cyber Dark</div>
-            <div class="theme-desc">Midnight & Sky Cyan</div>
-            <div class="theme-check" id="check-cyber-dark">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="oled-neon" onclick="setTheme('oled-neon')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #000000 50%, #ec4899 50%);"></div>
-            <div class="theme-title">Midnight OLED</div>
-            <div class="theme-desc">True Black & Neon Pink</div>
-            <div class="theme-check" id="check-oled-neon">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="nord-frost" onclick="setTheme('nord-frost')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #242933 50%, #88c0d0 50%);"></div>
-            <div class="theme-title">Nord Arctic</div>
-            <div class="theme-desc">Nordic Frost & Slate</div>
-            <div class="theme-check" id="check-nord-frost">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="dracula" onclick="setTheme('dracula')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #151320 50%, #c4a7e7 50%);"></div>
-            <div class="theme-title">Dracula Purple</div>
-            <div class="theme-desc">Twilight Violet & Pastel</div>
-            <div class="theme-check" id="check-dracula">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="emerald-matrix" onclick="setTheme('emerald-matrix')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #050c08 50%, #10b981 50%);"></div>
-            <div class="theme-title">Emerald Matrix</div>
-            <div class="theme-desc">Obsidian & Vivid Green</div>
-            <div class="theme-check" id="check-emerald-matrix">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="solar-sunset" onclick="setTheme('solar-sunset')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #100b0b 50%, #f97316 50%);"></div>
-            <div class="theme-title">Solar Sunset</div>
-            <div class="theme-desc">Warm Charcoal & Amber</div>
-            <div class="theme-check" id="check-solar-sunset">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="tokyo-night" onclick="setTheme('tokyo-night')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #7aa2f7 50%);"></div>
-            <div class="theme-title">Tokyo Night</div>
-            <div class="theme-desc">Deep Indigo & Cyan</div>
-            <div class="theme-check" id="check-tokyo-night">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="synthwave" onclick="setTheme('synthwave')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #140d22 50%, #d946ef 50%);"></div>
-            <div class="theme-title">Synthwave 80s</div>
-            <div class="theme-desc">Retro Violet & Pink</div>
-            <div class="theme-check" id="check-synthwave">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="abyssal-ocean" onclick="setTheme('abyssal-ocean')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #051018 50%, #14b8a6 50%);"></div>
-            <div class="theme-title">Abyssal Ocean</div>
-            <div class="theme-desc">Deep Marine & Teal</div>
-            <div class="theme-check" id="check-abyssal-ocean">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="monokai-pro" onclick="setTheme('monokai-pro')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d1b1d 50%, #ffd866 50%);"></div>
-            <div class="theme-title">Monokai Pro</div>
-            <div class="theme-desc">Dark Carbon & Gold</div>
-            <div class="theme-check" id="check-monokai-pro">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="terminal-crt" onclick="setTheme('terminal-crt')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #020703 50%, #00ff66 50%); border-color: #00ff66;"></div>
-            <div class="theme-title">Terminal CRT</div>
-            <div class="theme-desc">Retro Monospace & Green CRT</div>
-            <div class="theme-check" id="check-terminal-crt">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="paper-light" onclick="setTheme('paper-light')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #f8fafc 50%, #2563eb 50%); border-color: #cbd5e1;"></div>
-            <div class="theme-title">Paper Light</div>
-            <div class="theme-desc">Clean Studio & Pure Light</div>
-            <div class="theme-check" id="check-paper-light">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="neo-brutalism" onclick="setTheme('neo-brutalism')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #fffdf5 50%, #ffd12d 50%); border: 2px solid #000;"></div>
-            <div class="theme-title">Neo-Brutalism</div>
-            <div class="theme-desc">High Contrast & Pop Borders</div>
-            <div class="theme-check" id="check-neo-brutalism">✓</div>
-          </div>
-          <div class="theme-card" data-theme-id="aurora-glass" onclick="setTheme('aurora-glass')">
-            <div class="theme-swatch" style="background: linear-gradient(135deg, #0c0f1d 50%, #a855f7 50%); border-color: rgba(255, 255, 255, 0.3);"></div>
-            <div class="theme-title">Aurora Glass</div>
-            <div class="theme-desc">Frosted Mesh & Glassmorphism</div>
-            <div class="theme-check" id="check-aurora-glass">✓</div>
-          </div>
-        </div>
+        <select id="theme-select" class="form-control" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem);">
+          <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
+          <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
+          <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
+          <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
+          <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
+          <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
+          <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
+          <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
+          <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
+          <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
+          <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
+          <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
+          <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
+          <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
+          <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
+          <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
+          <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
+          <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
+          <option value="nightowl">Nightowl — Deep Navy & Coral</option>
+          <option value="vesper">Vesper — Warm Noir & Copper</option>
+        </select>
       </div>
 
       <!-- 2. SERVER CONTROL SECTION -->
@@ -2380,10 +2316,10 @@ def create_app(
       document.querySelectorAll('.theme-check').forEach(chk => {
         chk.style.display = 'none';
       });
-      const mChk = document.getElementById(`check-${themeId}`);
-      if (mChk) mChk.style.display = 'block';
       const tChk = document.getElementById(`tab-check-${themeId}`);
       if (tChk) tChk.style.display = 'block';
+      const themeSelect = document.getElementById('theme-select');
+      if (themeSelect) themeSelect.value = themeId;
     }
 
     function openSettingsModal() {
