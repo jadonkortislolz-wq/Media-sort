@@ -65,7 +65,47 @@ def test_generate_tv_destination(namer):
 
     dest = namer.generate_destination_path(cls_res)
     assert "Season 01" in str(dest)
-    assert "Breaking Bad - S01E01 - Pilot.mkv" in str(dest)
+    assert "Breaking Bad_S01E01.mkv" in str(dest)
+
+
+def test_custom_template_and_angle_brackets(settings):
+    settings.templates.tv = "{title}/<SHOW_NAME> - <SEASON_EPISODE>.<ext>"
+    settings.templates.movie = "<MOVIE_NAME>.<ext>"
+    custom_namer = MediaNamer(settings)
+
+    tokens = TokenizedFilename(
+        raw_name="Breaking Bad S01E01 Pilot.mkv",
+        title="Breaking Bad",
+        season=1,
+        episode=1,
+    )
+    meta = MediaMetadata(path=Path("Breaking Bad S01E01 Pilot.mkv"), mime_type="video/x-matroska", container="mkv")
+    cls_res = ClassificationResult(category="tv", confidence=0.95, tokens=tokens, metadata=meta)
+    dest = custom_namer.generate_destination_path(cls_res)
+    assert "Breaking Bad/Breaking Bad - S01E01.mkv" in str(dest)
+
+    movie_tokens = TokenizedFilename(raw_name="Inception.2010.mkv", title="Inception")
+    movie_meta = MediaMetadata(path=Path("Inception.2010.mkv"), mime_type="video/x-matroska", container="mkv")
+    movie_res = ClassificationResult(category="movie", confidence=0.95, tokens=movie_tokens, metadata=movie_meta)
+    movie_dest = custom_namer.generate_destination_path(movie_res)
+    assert movie_dest.name == "Inception.mkv"
+
+
+def test_rename_files_disabled(settings):
+    settings.general.rename_files = False
+    namer_no_rename = MediaNamer(settings)
+
+    tokens = TokenizedFilename(
+        raw_name="Breaking.Bad.S01E01.720p.HDTV.mkv",
+        title="Breaking Bad",
+        season=1,
+        episode=1,
+    )
+    meta = MediaMetadata(path=Path("Breaking.Bad.S01E01.720p.HDTV.mkv"), mime_type="video/x-matroska", container="mkv")
+    cls_res = ClassificationResult(category="tv", confidence=0.95, tokens=tokens, metadata=meta)
+    dest = namer_no_rename.generate_destination_path(cls_res)
+    assert "Season 01" in str(dest)
+    assert dest.name == "Breaking.Bad.S01E01.720p.HDTV.mkv"
 
 
 def test_generate_quarantine_destination(namer):

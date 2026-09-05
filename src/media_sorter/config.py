@@ -54,6 +54,7 @@ class GeneralSettings(BaseModel):
     log_level: str = "INFO"
     scan_interval_seconds: int = 0
     cleanup_empty_dirs: bool = True
+    rename_files: bool = True
 
     @field_validator("confidence_threshold")
     @classmethod
@@ -115,9 +116,9 @@ class FilterSettings(BaseModel):
 
 
 class TemplateSettings(BaseModel):
-    movie: str = "{title} ({year})/{title} ({year}) [{resolution} {codec}].{ext}"
-    tv: str = "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} - {episode_title}.{ext}"
-    anime: str = "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} [{group}].{ext}"
+    movie: str = "{title} ({year})/{movie_name}.{ext}"
+    tv: str = "{title}/Season {season:02d}/{show_name}_{season_episode}.{ext}"
+    anime: str = "{title}/Season {season:02d}/{show_name}_{season_episode} [{group}].{ext}"
     music: str = "{artist}/{album} ({year})/{disc:01d}{track:02d} - {title}.{ext}"
     audiobook: str = "{author}/{title}/{track:02d} - {chapter}.{ext}"
     podcast: str = "{show}/{year}/{show} - {date} - {title}.{ext}"
@@ -274,6 +275,19 @@ class Settings(BaseSettings):
             if cleanup_env is not None:
                 self.general.cleanup_empty_dirs = cleanup_env.strip().lower() in ("true", "1", "yes", "on")
 
+            rename_env = os.getenv("RENAME_FILES")
+            if rename_env is not None:
+                self.general.rename_files = rename_env.strip().lower() in ("true", "1", "yes", "on")
+
+        if "templates" not in self.model_fields_set:
+            movie_tmpl = os.getenv("MOVIE_TEMPLATE")
+            if movie_tmpl:
+                self.templates.movie = movie_tmpl
+
+            tv_tmpl = os.getenv("TV_TEMPLATE") or os.getenv("SHOW_TEMPLATE") or os.getenv("SHOWS_TEMPLATE")
+            if tv_tmpl:
+                self.templates.tv = tv_tmpl
+
         if "server" not in self.model_fields_set:
             host_env = os.getenv("SERVER_HOST") or os.getenv("HOST")
             if host_env:
@@ -390,6 +404,18 @@ class Settings(BaseSettings):
         if cleanup is not None:
             settings.general.cleanup_empty_dirs = str(cleanup).strip().lower() in ("true", "1", "yes", "on")
 
+        rename_files = os.getenv("RENAME_FILES") if os.getenv("RENAME_FILES") is not None else values.get("RENAME_FILES")
+        if rename_files is not None:
+            settings.general.rename_files = str(rename_files).strip().lower() in ("true", "1", "yes", "on")
+
+        movie_tmpl = os.getenv("MOVIE_TEMPLATE") or values.get("MOVIE_TEMPLATE")
+        if movie_tmpl:
+            settings.templates.movie = movie_tmpl
+
+        tv_tmpl = os.getenv("TV_TEMPLATE") or values.get("TV_TEMPLATE") or os.getenv("SHOW_TEMPLATE") or values.get("SHOW_TEMPLATE") or os.getenv("SHOWS_TEMPLATE") or values.get("SHOWS_TEMPLATE")
+        if tv_tmpl:
+            settings.templates.tv = tv_tmpl
+
         host = os.getenv("SERVER_HOST") or values.get("SERVER_HOST") or os.getenv("HOST") or values.get("HOST")
         if host:
             settings.server.host = host
@@ -421,6 +447,9 @@ class Settings(BaseSettings):
             f"MIN_FILE_AGE_SECONDS={self.general.min_file_age_seconds}\n"
             f"SCAN_INTERVAL_SECONDS={self.general.scan_interval_seconds}\n"
             f"CLEANUP_EMPTY_DIRS={'true' if self.general.cleanup_empty_dirs else 'false'}\n"
+            f"RENAME_FILES={'true' if self.general.rename_files else 'false'}\n"
+            f"MOVIE_TEMPLATE={self.templates.movie}\n"
+            f"TV_TEMPLATE={self.templates.tv}\n"
             f"SERVER_HOST={self.server.host}\n"
             f"SERVER_PORT={self.server.port}\n"
             f"DATABASE_PATH={self.database.path}\n"

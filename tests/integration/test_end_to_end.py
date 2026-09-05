@@ -69,7 +69,7 @@ def test_end_to_end_pipeline(library_environment):
     movie_dest_dir = organized / "Movies/The Dark Knight (2008)"
     assert movie_dest_dir.exists()
     dest_movie = list(movie_dest_dir.glob("*.mkv"))[0]
-    assert "The Dark Knight (2008)" in dest_movie.name
+    assert "The Dark Knight" in dest_movie.name
     # Subtitle should be alongside movie with .en.srt
     dest_sub = list(movie_dest_dir.glob("*.srt"))[0]
     assert dest_sub.name.endswith(".en.srt")

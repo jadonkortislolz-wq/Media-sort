@@ -107,6 +107,14 @@ class MediaNamer:
         context = self._build_context(cls_result)
         formatted_rel = self._render_template(template, context)
 
+        # If file renaming is disabled, preserve original source filename
+        if not getattr(self.settings.general, "rename_files", True) and src_path.name != "unknown":
+            rel_path = Path(formatted_rel)
+            if len(rel_path.parts) > 1:
+                formatted_rel = str(rel_path.parent / src_path.name)
+            else:
+                formatted_rel = src_path.name
+
         # Sanitize each path component separately to preserve folder hierarchy
         parts = Path(formatted_rel).parts
         sanitized_parts = [sanitize_filename_component(p) for p in parts]
@@ -153,14 +161,25 @@ class MediaNamer:
         meta = res.metadata
         src_path = meta.path if meta else Path("file")
 
+        season_num = (tokens.season if tokens else 1) or 1
+        episode_num = (tokens.episode if tokens else 1) or 1
+        season_ep_str = f"S{season_num:02d}E{episode_num:02d}"
+        main_title = (tokens.title if tokens else None) or src_path.stem
+
         ctx: Dict[str, Any] = {
             "ext": src_path.suffix.lstrip("."),
             "filename": src_path.stem,
-            "title": (tokens.title if tokens else None) or src_path.stem,
+            "title": main_title,
+            "show_name": main_title,
+            "SHOW_NAME": main_title,
+            "movie_name": main_title,
+            "MOVIE_NAME": main_title,
+            "season_episode": season_ep_str,
+            "SEASON_EPISODE": season_ep_str,
             "year": (tokens.year if tokens else None) or "Unknown",
-            "season": (tokens.season if tokens else 1) or 1,
-            "episode": (tokens.episode if tokens else 1) or 1,
-            "episode_title": (tokens.episode_title if tokens else None) or f"Episode {tokens.episode if tokens else 1}",
+            "season": season_num,
+            "episode": episode_num,
+            "episode_title": (tokens.episode_title if tokens else None) or f"Episode {episode_num}",
             "artist": (tokens.artist if tokens else None) or "Unknown Artist",
             "album": (tokens.album if tokens else None) or "Unknown Album",
             "track": (tokens.track if tokens else 1) or 1,
@@ -184,6 +203,10 @@ class MediaNamer:
             p = res.provider_result
             if p.canonical_title:
                 ctx["title"] = p.canonical_title
+                ctx["show_name"] = p.canonical_title
+                ctx["SHOW_NAME"] = p.canonical_title
+                ctx["movie_name"] = p.canonical_title
+                ctx["MOVIE_NAME"] = p.canonical_title
             if p.year:
                 ctx["year"] = p.year
             if p.episode_title:
@@ -217,15 +240,15 @@ class MediaNamer:
 
     def _render_template(self, template: str, context: Dict[str, Any]) -> str:
         """Format template while gracefully cleaning empty technical brackets."""
-        # Clean formatting like [ ] or () if empty
-        rendered = template
+        # Normalize <TAG> to {TAG} for convenience if users use angle brackets
+        rendered = re.sub(r"<([a-zA-Z_0-9]+)>", r"{\1}", template)
         try:
-            rendered = template.format(**context)
+            rendered = rendered.format(**context)
         except (KeyError, ValueError):
             # Safe token replacement if format specifier fails
             safe_ctx = {k: str(v) if v is not None else "" for k, v in context.items()}
             # Remove format specifiers like :02d
-            simplified = re.sub(r"\{(\w+):[^}]+\}", r"{\1}", template)
+            simplified = re.sub(r"\{(\w+):[^}]+\}", r"{\1}", rendered)
             try:
                 rendered = simplified.format(**safe_ctx)
             except Exception:

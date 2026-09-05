@@ -59,6 +59,9 @@ class SettingsUpdateRequest(BaseModel):
     scan_interval_seconds: Optional[int] = None
     action: Optional[str] = None
     cleanup_empty_dirs: Optional[bool] = None
+    rename_files: Optional[bool] = None
+    movie_template: Optional[str] = None
+    tv_template: Optional[str] = None
 
 
 def format_bytes(size: int) -> str:
@@ -362,7 +365,7 @@ def create_app(
             shows_dir = settings.get_destination_path("tv")
 
             return {
-                "version": "1.0.0",
+                "version": __version__,
                 "status": "online",
                 "database": str(settings.get_database_path()),
                 "dry_run": settings.general.dry_run,
@@ -606,6 +609,9 @@ def create_app(
             "min_file_age_seconds": settings.general.min_file_age_seconds,
             "scan_interval_seconds": settings.general.scan_interval_seconds,
             "cleanup_empty_dirs": settings.general.cleanup_empty_dirs,
+            "rename_files": settings.general.rename_files,
+            "movie_template": settings.templates.movie,
+            "tv_template": settings.templates.tv,
             "action": settings.general.action.value,
             "server_host": settings.server.host,
             "server_port": settings.server.port,
@@ -643,6 +649,19 @@ def create_app(
         if req.cleanup_empty_dirs is not None:
             settings.general.cleanup_empty_dirs = req.cleanup_empty_dirs
             os.environ["CLEANUP_EMPTY_DIRS"] = "true" if req.cleanup_empty_dirs else "false"
+        if req.rename_files is not None:
+            settings.general.rename_files = req.rename_files
+            os.environ["RENAME_FILES"] = "true" if req.rename_files else "false"
+        if req.movie_template is not None:
+            tmpl = req.movie_template.strip()
+            if tmpl:
+                settings.templates.movie = tmpl
+                os.environ["MOVIE_TEMPLATE"] = tmpl
+        if req.tv_template is not None:
+            tmpl = req.tv_template.strip()
+            if tmpl:
+                settings.templates.tv = tmpl
+                os.environ["TV_TEMPLATE"] = tmpl
         if req.action:
             try:
                 settings.general.action = ActionType(req.action.lower())
@@ -2203,6 +2222,33 @@ def create_app(
               Automatically removes empty directories left behind in the downloads folder after files are organized.
             </p>
           </div>
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+              <input type="checkbox" id="cfg-rename" checked style="width: 1.1rem; height: 1.1rem; accent-color: var(--accent); cursor: pointer;" onchange="document.getElementById('rename-patterns-box').style.display = this.checked ? 'block' : 'none'">
+              <span>🏷️ Rename files when organizing</span>
+            </label>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; margin-left: 1.6rem;">
+              When enabled, organizes and renames files using your custom patterns. When disabled, original filenames are preserved.
+            </p>
+          </div>
+          <div id="rename-patterns-box" style="border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.25rem; background: rgba(0,0,0,0.15);">
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label">TV Show Renaming Pattern</label>
+              <input type="text" class="form-control" id="cfg-tv-template" placeholder="{title}/Season {season:02d}/{show_name}_{season_episode}.{ext}">
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Default: <code>&lt;SHOW_NAME&gt;_&lt;SEASON_EPISODE&gt;</code> (e.g. <code>{title}/Season {season:02d}/{show_name}_{season_episode}.{ext}</code>)<br>
+                Available tags: <code>&lt;SHOW_NAME&gt;</code>, <code>&lt;SEASON_EPISODE&gt;</code>, <code>{show_name}</code>, <code>{season_episode}</code>, <code>{title}</code>, <code>{season:02d}</code>, <code>{episode:02d}</code>, <code>{episode_title}</code>, <code>{ext}</code>
+              </p>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Movie Renaming Pattern</label>
+              <input type="text" class="form-control" id="cfg-movie-template" placeholder="{title} ({year})/{movie_name}.{ext}">
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Default: <code>&lt;MOVIE_NAME&gt;</code> (e.g. <code>{title} ({year})/{movie_name}.{ext}</code>)<br>
+                Available tags: <code>&lt;MOVIE_NAME&gt;</code>, <code>{movie_name}</code>, <code>{title}</code>, <code>{year}</code>, <code>{resolution}</code>, <code>{codec}</code>, <code>{ext}</code>
+              </p>
+            </div>
+          </div>
           <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 1.5rem;">
             <button type="submit" class="btn btn-emerald">💾 Save to .env</button>
           </div>
@@ -2849,6 +2895,11 @@ def create_app(
         document.getElementById('cfg-action').value = s.action;
         document.getElementById('cfg-interval').value = s.scan_interval_seconds || 0;
         document.getElementById('cfg-cleanup').checked = s.cleanup_empty_dirs !== false;
+        const renameEnabled = s.rename_files !== false;
+        document.getElementById('cfg-rename').checked = renameEnabled;
+        document.getElementById('rename-patterns-box').style.display = renameEnabled ? 'block' : 'none';
+        document.getElementById('cfg-movie-template').value = s.movie_template || '';
+        document.getElementById('cfg-tv-template').value = s.tv_template || '';
       } catch (e) {
         console.error(e);
       }
@@ -2865,6 +2916,9 @@ def create_app(
         action: document.getElementById('cfg-action').value,
         scan_interval_seconds: parseInt(document.getElementById('cfg-interval').value, 10) || 0,
         cleanup_empty_dirs: document.getElementById('cfg-cleanup').checked,
+        rename_files: document.getElementById('cfg-rename').checked,
+        movie_template: document.getElementById('cfg-movie-template').value,
+        tv_template: document.getElementById('cfg-tv-template').value,
       };
       try {
         const res = await fetch('/api/settings', {

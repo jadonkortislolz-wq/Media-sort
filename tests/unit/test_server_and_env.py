@@ -105,6 +105,9 @@ def test_web_settings_update(web_env, tmp_path: Path):
         "movies_dir": str(new_movies),
         "dry_run": True,
         "confidence_threshold": 0.80,
+        "rename_files": False,
+        "movie_template": "<MOVIE_NAME>.<ext>",
+        "tv_template": "{title}/<SHOW_NAME>_<SEASON_EPISODE>.<ext>",
     }
     resp = client.post("/api/settings", json=update_payload)
     assert resp.status_code == 200
@@ -117,12 +120,18 @@ def test_web_settings_update(web_env, tmp_path: Path):
     assert s_data["movies_dir"] == str(new_movies)
     assert s_data["dry_run"] is True
     assert s_data["confidence_threshold"] == 0.80
+    assert s_data["rename_files"] is False
+    assert s_data["movie_template"] == "<MOVIE_NAME>.<ext>"
+    assert s_data["tv_template"] == "{title}/<SHOW_NAME>_<SEASON_EPISODE>.<ext>"
 
     # Verify test_env_file was written
     assert test_env_file.is_file()
     content = test_env_file.read_text(encoding="utf-8")
     assert str(new_downloads) in content
     assert str(new_movies) in content
+    assert "RENAME_FILES=false" in content
+    assert "MOVIE_TEMPLATE=<MOVIE_NAME>.<ext>" in content
+    assert "TV_TEMPLATE={title}/<SHOW_NAME>_<SEASON_EPISODE>.<ext>" in content
 
 
 def test_web_restart_endpoint(web_env, monkeypatch):
