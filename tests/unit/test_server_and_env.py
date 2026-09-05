@@ -460,6 +460,58 @@ def test_quarantine_bulk_resolve_and_bulk_undo_api(web_env):
     assert len(q_data_restored["resolved"]) == 0
 
 
+def test_sort_show_endpoint_and_rollback(web_env):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+
+    # Create episodic show files and an unrelated file
+    ep1 = downloads / "Naruto Episode 001 Enter Naruto Uzumaki!.mkv"
+    ep2 = downloads / "Naruto Episode 002 My Name is Konohamaru!.mkv"
+    movie = downloads / "Inception (2010).mkv"
+
+    header = b"\x1aE\xdf\xa3" + b"\x00" * 300
+    ep1.write_bytes(header)
+    ep2.write_bytes(header)
+    movie.write_bytes(header)
+
+    # 1. Sort show specifically
+    res = client.post("/api/files/sort-show", json={
+        "show_name": "Naruto"
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["moved_files"] == 2
+    assert data["show_name"] == "Naruto"
+
+    # Naruto episodes moved, movie remains in downloads
+    assert not ep1.exists()
+    assert not ep2.exists()
+    assert movie.exists()
+
+    # Destination directory contains organized show
+    naruto_dir = shows / "Naruto"
+    assert naruto_dir.exists()
+    organized_eps = list(naruto_dir.rglob("*.mkv"))
+    assert len(organized_eps) == 2
+
+    # 2. Rollback the show batch
+    batch_id = data["batch_id"]
+    rb_res = client.post("/api/rollback", json={"batch_id": batch_id})
+    assert rb_res.status_code == 200
+    assert rb_res.json()["reverted_files"] == 2
+
+    # Files restored to downloads
+    assert ep1.exists()
+    assert ep2.exists()
+
+    # 3. Non-existent show returns 404
+    err_res = client.post("/api/files/sort-show", json={
+        "show_name": "NonExistentShow"
+    })
+    assert err_res.status_code == 404
+
+
+
 
 
 

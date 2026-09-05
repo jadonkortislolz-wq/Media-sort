@@ -96,3 +96,30 @@ def test_movie_bracket_group_year_not_anime(tokenizer):
     assert tokens.year == 2024
     assert tokens.title == "Movie Title"
 
+
+def test_standalone_episode_tokenization(tokenizer):
+    tokens = tokenizer.tokenize(Path("Naruto Episode 207 The Supposed Sealed Ability.mkv"))
+    assert tokens.is_episodic is True
+    assert tokens.title == "Naruto"
+    assert tokens.season == 1
+    assert tokens.episode == 207
+    assert tokens.episode_title == "The Supposed Sealed Ability"
+
+
+def test_anime_fansub_without_group_tokenization(tokenizer):
+    tokens = tokenizer.tokenize(Path("BLEACH꞉ Sennen Kessen-hen - 27 E89717B7].mkv"))
+    assert tokens.is_anime is True
+    assert tokens.is_episodic is True
+    assert "BLEACH" in tokens.title
+    assert tokens.episode == 27
+    assert tokens.season == 1
+
+
+def test_anime_ending_opening_tokenization(tokenizer):
+    tokens = tokenizer.tokenize(Path("[A&C] Sword Art Online Alicization S03ED01 [BDrip 1080p] [09F0EA6C].mkv"))
+    assert tokens.is_episodic is True
+    assert "Sword Art Online" in tokens.title
+    assert tokens.season == 3
+    assert tokens.episode == 1
+
+

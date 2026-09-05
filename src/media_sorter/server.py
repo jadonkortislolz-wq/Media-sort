@@ -79,6 +79,13 @@ class ManualSortRequest(BaseModel):
     episode: Optional[int] = None
 
 
+class SortShowRequest(BaseModel):
+    show_name: str
+    target_destination: Optional[str] = None
+    relative_paths: Optional[List[str]] = None
+    dry_run: bool = False
+
+
 class SettingsUpdateRequest(BaseModel):
     downloads_dir: Optional[str] = None
     movies_dir: Optional[str] = None
@@ -904,6 +911,61 @@ def create_app(
 
         shutil.move(target, final_dst)
         return {"status": "moved", "destination": str(final_dst)}
+
+    @app.post("/api/files/sort-show")
+    def sort_show_endpoint(req: SortShowRequest):
+        downloads_path = (settings.get_source_paths()[0] if settings.get_source_paths() else Path("downloads")).resolve()
+        resolved_files: List[Path] = []
+        if req.relative_paths:
+            for rel in req.relative_paths:
+                p = (downloads_path / rel).resolve()
+                if p.is_file() and p.is_relative_to(downloads_path):
+                    resolved_files.append(p)
+                else:
+                    for root, _, files in os.walk(downloads_path):
+                        if rel in files or p.name in files:
+                            found = Path(root) / (rel if rel in files else p.name)
+                            if found.is_file():
+                                resolved_files.append(found)
+                                break
+        else:
+            inspection = inspect_downloads_folder(downloads_path, settings)
+            for show in inspection.get("shows", []):
+                if show.get("show_name", "").lower() == req.show_name.lower():
+                    for f in show.get("files", []):
+                        p = (downloads_path / f["relative_path"]).resolve()
+                        if p.is_file():
+                            resolved_files.append(p)
+                    break
+
+        if not resolved_files:
+            raise HTTPException(status_code=404, detail=f"No files found for show '{req.show_name}'")
+
+        sorter = MediaSorterApp(settings, engine)
+        report = sorter.run(
+            dry_run=req.dry_run,
+            filter_paths=resolved_files,
+            show_name_override=req.show_name,
+        )
+
+        return {
+            "status": "ok",
+            "show_name": req.show_name,
+            "total_files": report.total_files,
+            "moved_files": report.moved_files,
+            "quarantined_files": report.quarantined_files,
+            "failed_files": report.failed_files,
+            "batch_id": report.batch_id,
+            "operations": [
+                {
+                    "src": str(op.src.name),
+                    "dst": str(op.dst),
+                    "category": op.category,
+                    "confidence": int(op.confidence * 100),
+                }
+                for op in report.operations
+            ],
+        }
 
 
     @app.get("/api/settings")
@@ -2152,6 +2214,17 @@ def create_app(
     }
 
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .loading-spinner {
+      display: inline-block;
+      width: 0.85rem;
+      height: 0.85rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.35rem;
+    }
   </style>
 </head>
 <body>
@@ -2169,7 +2242,7 @@ def create_app(
           <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; padding: 0 0.5rem;">
             <input type="checkbox" id="auto-refresh-chk" onchange="toggleAutoRefresh(this.checked)"> Auto-refresh (5s)
           </label>
-          <button class="btn btn-emerald" onclick="triggerRun(false)">⚡ Run Sort Now (Live)</button>
+          <button class="btn btn-emerald" id="btn-sort-live-dashboard" onclick="triggerRun(false)">⚡ Run Sort Now (Live)</button>
           <button class="btn btn-accent" onclick="triggerRun(true)">🔍 Preview Sort (Dry-Run)</button>
           <button class="btn btn-amber" onclick="triggerRollback()" title="Undo latest sorted batch">⏮ Undo Changes</button>
           <button class="btn btn-outline" style="border-color: var(--amber); color: var(--amber);" onclick="triggerRollbackAll()" title="Undo all sorted changes">⏪ Undo All Changes</button>
@@ -2278,7 +2351,7 @@ def create_app(
         <div style="display: flex; gap: 0.5rem; align-items: center;">
           <button class="btn btn-outline btn-sm" onclick="loadFiles()">🔄 Refresh</button>
           <button class="btn btn-accent btn-sm" onclick="triggerRun(true)">🔍 Preview Sort</button>
-          <button class="btn btn-emerald btn-sm" onclick="triggerRun(false)">⚡ Sort All Files</button>
+          <button class="btn btn-emerald btn-sm" id="btn-sort-all-files" onclick="triggerRun(false)">⚡ Sort All Files</button>
         </div>
       </div>
 
@@ -2942,6 +3015,20 @@ def create_app(
     }
 
     async function triggerRun(dryRun) {
+      const btnAll = document.getElementById('btn-sort-all-files');
+      const btnDash = document.getElementById('btn-sort-live-dashboard');
+      const origAllText = btnAll ? btnAll.innerHTML : '';
+      const origDashText = btnDash ? btnDash.innerHTML : '';
+
+      if (btnAll) {
+        btnAll.disabled = true;
+        btnAll.innerHTML = `<span class="loading-spinner"></span> Sorting...`;
+      }
+      if (btnDash) {
+        btnDash.disabled = true;
+        btnDash.innerHTML = `<span class="loading-spinner"></span> Sorting...`;
+      }
+
       showToast(dryRun ? 'Running Dry-Run Preview...' : 'Executing Live Sorting...');
       try {
         const res = await fetch('/api/run', {
@@ -2954,33 +3041,42 @@ def create_app(
 
         // Show results panel
         const panel = document.getElementById('panel-run-results');
-        panel.style.display = 'block';
-        document.getElementById('run-results-title').textContent = dryRun ? '🔍 Dry-Run Preview Results' : '⚡ Live Execution Results';
-        document.getElementById('run-results-summary').textContent = `Total: ${data.total_files} | Moved: ${data.moved_files} | Quarantined: ${data.quarantined_files} | Skipped: ${data.skipped_files}`;
+        if (panel) {
+          panel.style.display = 'block';
+          document.getElementById('run-results-title').textContent = dryRun ? '🔍 Dry-Run Preview Results' : '⚡ Live Execution Results';
+          document.getElementById('run-results-summary').textContent = `Total: ${data.total_files} | Moved: ${data.moved_files} | Quarantined: ${data.quarantined_files} | Skipped: ${data.skipped_files}`;
 
-        const tbody = document.getElementById('run-results-tbody');
-        tbody.innerHTML = '';
-        if (data.operations.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" style="color: var(--text-muted); text-align: center;">No files found in downloads folder to sort.</td></tr>';
-        } else {
-          data.operations.forEach(op => {
-            const tr = document.createElement('tr');
-            const catTag = op.category === 'movie' ? 'tag-movie' : (op.category === 'tv' ? 'tag-show' : 'tag-quarantine');
-            tr.innerHTML = `
-              <td><code>${op.src}</code></td>
-              <td><span class="tag ${catTag}">${op.category.toUpperCase()}</span></td>
-              <td>${op.confidence}%</td>
-              <td style="font-size: 0.8rem; color: var(--text-muted);">${op.dst}</td>
-            `;
-            tbody.appendChild(tr);
-          });
+          const tbody = document.getElementById('run-results-tbody');
+          tbody.innerHTML = '';
+          if (data.operations.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="color: var(--text-muted); text-align: center;">No files found in downloads folder to sort.</td></tr>';
+          } else {
+            data.operations.forEach(op => {
+              const tr = document.createElement('tr');
+              const catTag = op.category === 'movie' ? 'tag-movie' : (op.category === 'tv' ? 'tag-show' : 'tag-quarantine');
+              tr.innerHTML = `
+                <td><code>${op.src}</code></td>
+                <td><span class="tag ${catTag}">${op.category.toUpperCase()}</span></td>
+                <td>${op.confidence}%</td>
+                <td style="font-size: 0.8rem; color: var(--text-muted);">${op.dst}</td>
+              `;
+              tbody.appendChild(tr);
+            });
+          }
         }
 
-        loadDashboard();
-        loadFiles();
-        loadQuarantine();
+        await Promise.all([loadDashboard(), loadFiles(), loadQuarantine()]);
       } catch (e) {
         showToast('Error executing run: ' + e);
+      } finally {
+        if (btnAll) {
+          btnAll.disabled = false;
+          btnAll.innerHTML = origAllText;
+        }
+        if (btnDash) {
+          btnDash.disabled = false;
+          btnDash.innerHTML = origDashText;
+        }
       }
     }
 
@@ -3316,6 +3412,41 @@ def create_app(
       }
     }
 
+    async function sortShowByIndex(idx, btn) {
+      if (!currentExplorerShows || !currentExplorerShows[idx]) return;
+      const show = currentExplorerShows[idx];
+      const origHtml = btn ? btn.innerHTML : '⚡ Sort Now';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="loading-spinner"></span> Sorting...`;
+      }
+      showToast(`⚡ Sorting ${show.files.length} episodes for ${show.show_name}...`);
+
+      try {
+        const res = await fetch('/api/files/sort-show', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            show_name: show.show_name,
+            target_destination: show.believed_destination_folder,
+            relative_paths: show.files.map(f => f.relative_path || f.name)
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Sorting failed');
+        }
+        showToast(`✓ Successfully organized ${data.moved_files} files for ${show.show_name}!`);
+        await Promise.all([loadFiles(), loadDashboard(), loadQuarantine()]);
+      } catch (e) {
+        showToast('Error sorting show: ' + (e.message || e));
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+      }
+    }
+
     function renderDownloadsExplorer(downloads) {
       const pathElem = document.getElementById('path-downloads');
       if (pathElem) pathElem.textContent = downloads.path || '';
@@ -3417,7 +3548,7 @@ def create_app(
                     </div>
                   </div>
                 </div>
-                <button class="btn btn-emerald btn-sm" onclick="triggerRun(false)">⚡ Sort Now</button>
+                <button class="btn btn-emerald btn-sm" id="btn-sort-show-${idx}" onclick="sortShowByIndex(${idx}, this)">⚡ Sort Now</button>
               </div>
               <div class="show-table-wrapper">
                 <table>

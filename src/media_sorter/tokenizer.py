@@ -16,12 +16,14 @@ from typing import Dict, List, Optional, Tuple
 RE_SEASON_EPISODE = re.compile(
     r"""(?ix)
     (?:
-        (?<![0-9a-z])s(?P<season>\d{1,2})[\.\s_-]*e(?P<episode>\d{1,3})
+        (?<![0-9a-z])s(?P<season>\d{1,2})[\.\s_-]*(?:e|ep|ed|op)(?P<episode>\d{1,3})
         (?:[\.\s_-]*(?:e|x|-)(?P<episode_end>\d{1,3}))?(?![0-9]) # multi-episode like S01E01-E02
     |
         (?<![0-9a-z])(?P<season_x>\d{1,2})x(?!(?:264|265|vid|hevc|avc))(?P<episode_x>\d{1,3})(?![0-9])
     |
-        \bseason[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*episode[\.\s_-]*(?P<episode_word>\d{1,3})\b
+        \bseason[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*(?:episode|ep)[\.\s_-]*(?P<episode_word>\d{1,3})\b
+    |
+        \b(?:episodes?|ep)[\.\s_-]*(?P<episode_standalone>\d{1,4})(?![0-9])\b
     )
     """
 )
@@ -29,10 +31,10 @@ RE_SEASON_EPISODE = re.compile(
 # Anime fansub format: [ReleaseGroup] Show Title - 01 (or 01v2) [1080p] [CRC32].mkv
 RE_ANIME_RELEASE = re.compile(
     r"""(?ix)
-    ^\s*\[(?P<group>[^\]]+)\]\s*
-    (?P<title>.+?)\s*-\s*
+    ^\s*(?:\[(?P<group>[^\]]+)\]\s*)?
+    (?P<title>[^\[\]\(\)]+?)\s*-\s*
     (?P<episode>\d{1,4})(?:v\d+)?\s*
-    (?:\[(?P<tag>[^\]]+)\]|\((?P<tag_paren>[^\)]+)\))*
+    (?:\s+(?:\[?[0-9A-Fa-f]{8}\]?|\[(?P<tag>[^\]]+)\]|\((?P<tag_paren>[^\)]+)\)|[A-Za-z0-9_.-]+))*\s*\]?$
     """
 )
 
@@ -126,7 +128,16 @@ class FilenameTokenizer:
         if ac_m:
             tokens.audio_codec = ac_m.group(1).upper()
 
-        # 2. Check for Camera / Date stamp (Photos & Home Videos)
+        # 2. Check for Podcast date format
+        pod_m = RE_PODCAST_DATE.match(stem)
+        if pod_m:
+            tokens.title = pod_m.group("title").strip()
+            tokens.artist = pod_m.group("show").strip()
+            tokens.year = int(pod_m.group("year"))
+            tokens.date_stamp = f"{pod_m.group('year')}-{pod_m.group('month')}-{pod_m.group('day')}"
+            return tokens
+
+        # 3. Check for Camera / Date stamp (Photos & Home Videos)
         cam_m = RE_CAMERA_DATE.search(stem)
         if cam_m:
             y, m, d = cam_m.group("year"), cam_m.group("month"), cam_m.group("day")
@@ -134,35 +145,41 @@ class FilenameTokenizer:
             tokens.year = int(y)
             tokens.is_photo_or_home_video = True
 
-        # 3. Check for Anime format
+        # 4. Check for Anime format
         anime_m = RE_ANIME_RELEASE.match(stem)
-        if anime_m:
+        if anime_m and (anime_m.group("group") or file_path.suffix.lower() in {".mkv", ".mp4", ".avi", ".mov", ".ts", ".webm", ".m4v", ".flv"}):
             ep_val = int(anime_m.group("episode"))
+            grp_name = anime_m.group("group").strip() if anime_m.group("group") else None
             if 1900 <= ep_val <= 2099:
                 # 4-digit number in year range is a release year (e.g. [Group] Title - 2024 [1080p])
                 tokens.year = ep_val
                 tokens.title = self._clean_title(anime_m.group("title"))
-                tokens.group = anime_m.group("group").strip()
+                tokens.group = grp_name
                 tokens.is_anime = False
                 tokens.is_episodic = False
                 return tokens
             else:
                 tokens.is_anime = True
-                tokens.group = anime_m.group("group").strip()
+                tokens.group = grp_name
                 tokens.title = self._clean_title(anime_m.group("title"))
                 tokens.episode = ep_val
-                tokens.season = 1  # Anime default season
+                tokens.season = self._extract_season_from_path(file_path) or 1
                 tokens.is_episodic = True
                 return tokens
 
-        # 4. Check for Standard TV episodic patterns (S01E02, 1x02)
+        # 4. Check for Standard TV episodic patterns (S01E02, 1x02, Season 1 Episode 2, Episode 207)
         tv_m = RE_SEASON_EPISODE.search(stem)
         if tv_m:
             tokens.is_episodic = True
             season_str = tv_m.group("season") or tv_m.group("season_x") or tv_m.group("season_word")
-            ep_str = tv_m.group("episode") or tv_m.group("episode_x") or tv_m.group("episode_word")
-            tokens.season = int(season_str)
-            tokens.episode = int(ep_str)
+            ep_str = tv_m.group("episode") or tv_m.group("episode_x") or tv_m.group("episode_word") or tv_m.group("episode_standalone")
+            if season_str:
+                tokens.season = int(season_str)
+            else:
+                tokens.season = self._extract_season_from_path(file_path) or 1
+
+            if ep_str:
+                tokens.episode = int(ep_str)
 
             end_ep = tv_m.group("episode_end")
             if end_ep:
@@ -170,13 +187,18 @@ class FilenameTokenizer:
 
             # Extract title before season marker
             prefix = stem[: tv_m.start()]
-            tokens.title = self._clean_title(prefix)
+            clean_pfx = self._clean_title(prefix)
+            if clean_pfx:
+                tokens.title = clean_pfx
+            else:
+                tokens.title = self._extract_title_from_context(file_path) or "Episode"
 
             # Check for year in prefix
-            yr_m = RE_YEAR.search(prefix)
-            if yr_m:
-                tokens.year = int(yr_m.group(1))
-                tokens.title = self._clean_title(prefix[: yr_m.start()])
+            if prefix:
+                yr_m = RE_YEAR.search(prefix)
+                if yr_m:
+                    tokens.year = int(yr_m.group(1))
+                    tokens.title = self._clean_title(prefix[: yr_m.start()])
 
             # Extract episode title after season marker
             suffix = stem[tv_m.end() :]
@@ -189,15 +211,6 @@ class FilenameTokenizer:
             if grp_m:
                 tokens.group = grp_m.group(1)
 
-            return tokens
-
-        # 5. Check for Podcast date format
-        pod_m = RE_PODCAST_DATE.match(stem)
-        if pod_m:
-            tokens.title = pod_m.group("title").strip()
-            tokens.artist = pod_m.group("show").strip()
-            tokens.year = int(pod_m.group("year"))
-            tokens.date_stamp = f"{pod_m.group('year')}-{pod_m.group('month')}-{pod_m.group('day')}"
             return tokens
 
         # 6. Check for Music track pattern
@@ -259,3 +272,41 @@ class FilenameTokenizer:
 
         cleaned = self._clean_title(s)
         return cleaned if cleaned else None
+
+    def _extract_season_from_path(self, file_path: Path) -> Optional[int]:
+        """Attempt to extract season number from parent directory names like 'Season 2' or 'S03'."""
+        try:
+            for part in file_path.parts[:-1]:
+                m = re.search(r"(?i)\b(?:season|series|s)\s*(\d{1,2})\b", part)
+                if m:
+                    return int(m.group(1))
+        except Exception:
+            pass
+        return None
+
+    def _extract_title_from_context(self, file_path: Path) -> Optional[str]:
+        """Attempt to extract show title from immediate parent directory (e.g. Show/Episode 01.mkv or Show/Season 1/Ep01.mkv)."""
+        try:
+            parent = file_path.parent
+            if not parent or str(parent) in ("/", ".", ""):
+                return None
+            p_name = parent.name
+            if re.search(r"(?i)\b(?:season|series|s)\s*\d+\b", p_name):
+                # Ascend one level if inside a season folder
+                parent = parent.parent
+                p_name = parent.name if parent else ""
+            if not p_name:
+                return None
+            p_lower = p_name.lower().strip()
+            system_folders = {
+                "downloads", "jdownloads", "media", "completed", "incomplete", "torrent",
+                "torrents", "root", "home", "mnt", "md0", "storage", "tmp", "temp", "var", "etc", "usr"
+            }
+            if p_lower in system_folders:
+                return None
+            clean = self._clean_title(p_name)
+            if len(clean) >= 2:
+                return clean
+        except Exception:
+            pass
+        return None

@@ -70,15 +70,25 @@ class MediaClassifier:
         if metadata.mime_type.startswith("image/"):
             return self._classify_image(scanned, tokens, metadata)
 
-        # 4. Audio-only handling
-        if metadata.has_audio and not metadata.has_video:
-            return self._classify_audio(scanned, tokens, metadata)
-
-        # 5. Video handling (TV, Anime, Movie, Documentary, Home Video)
-        if metadata.has_video or metadata.mime_type.startswith("video/") or scanned.path.suffix.lower() in {
-            ".mp4", ".mkv", ".m4v", ".avi", ".mov", ".ts", ".webm", ".wmv", ".flv"
-        }:
+        # 4. Video handling (TV, Anime, Movie, Documentary, Home Video)
+        if (
+            metadata.has_video
+            or metadata.mime_type.startswith("video/")
+            or scanned.path.suffix.lower() in {
+                ".mp4", ".mkv", ".m4v", ".avi", ".mov", ".ts", ".webm", ".wmv", ".flv"
+            }
+        ):
             return self._classify_video(scanned, tokens, metadata)
+
+        # 5. Audio-only handling
+        if (
+            metadata.has_audio
+            or metadata.mime_type.startswith("audio/")
+            or scanned.path.suffix.lower() in {
+                ".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".alac", ".aiff"
+            }
+        ):
+            return self._classify_audio(scanned, tokens, metadata)
 
         # 6. Fallback for unrecognized formats
         return ClassificationResult(

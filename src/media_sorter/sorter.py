@@ -63,6 +63,7 @@ class MediaSorterApp:
     def scan_and_analyze(
         self,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        filter_paths: Optional[List[Path]] = None,
     ) -> List[Tuple[ScannedFile, ClassificationResult]]:
         """Discover files across all configured source directories and analyze in parallel."""
         source_paths = self.settings.get_source_paths()
@@ -94,6 +95,10 @@ class MediaSorterApp:
                     logger.debug("Skipping unchanged already organized file", path=str(s.path))
                     continue
                 qualifying_files.append(s)
+
+        if filter_paths:
+            filter_resolved = {p.resolve() for p in filter_paths}
+            qualifying_files = [s for s in qualifying_files if s.path.resolve() in filter_resolved]
 
         total_files = len(qualifying_files)
         logger.info("Files requiring processing", count=total_files)
@@ -179,6 +184,8 @@ class MediaSorterApp:
         self,
         dry_run: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        filter_paths: Optional[List[Path]] = None,
+        show_name_override: Optional[str] = None,
     ) -> BatchExecutionReport:
         """Run full media sorter pipeline: scan, analyze, plan, and execute."""
         start_time = time.time()
@@ -187,7 +194,18 @@ class MediaSorterApp:
         logger.info("Executing media-sorter run", dry_run=is_dry_run)
 
         # Discover and analyze
-        analysis_results = self.scan_and_analyze(progress_callback=progress_callback)
+        analysis_results = self.scan_and_analyze(
+            progress_callback=progress_callback, filter_paths=filter_paths
+        )
+
+        if show_name_override:
+            for scanned, cls_res in analysis_results:
+                cls_res.category = "tv"
+                if not cls_res.tokens.title or cls_res.tokens.title.lower() in ("episode", "unknown", ""):
+                    cls_res.tokens.title = show_name_override
+                cls_res.tokens.is_episodic = True
+                cls_res.needs_quarantine = False
+                cls_res.confidence = max(cls_res.confidence, 0.95)
 
         # Build plan
         planned_ops = self.build_plan(analysis_results)

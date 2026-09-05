@@ -454,13 +454,13 @@ class MediaAnalyzer:
                 meta.height = int.from_bytes(data[h_idx + 2 : h_idx + 2 + h_len], "big")
 
         # Track indicators
-        if b"V_MPEG4" in data or b"V_MPEGH" in data or b"V_VP8" in data or b"V_VP9" in data or b"V_AV1" in data:
+        if b"V_" in data or b"video" in data[:1000].lower() or meta.width or meta.height:
             meta.has_video = True
             meta.streams.append(StreamInfo(stream_type="video", width=meta.width, height=meta.height))
-        if b"A_AAC" in data or b"A_AC3" in data or b"A_FLAC" in data or b"A_OPUS" in data or b"A_VORBIS" in data:
+        if b"A_" in data or b"audio" in data[:1000].lower():
             meta.has_audio = True
             meta.streams.append(StreamInfo(stream_type="audio"))
-        if b"S_TEXT" in data or b"S_HDMV" in data or b"S_VOBSUB" in data:
+        if b"S_TEXT" in data or b"S_HDMV" in data or b"S_VOBSUB" in data or b"sub" in data[:1000].lower():
             meta.has_subtitles = True
             meta.streams.append(StreamInfo(stream_type="subtitle"))
 

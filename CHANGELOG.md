@@ -5,6 +5,30 @@ All notable changes to the Media Sorter project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-09-05
+
+### Added
+- **Targeted Show Sorting (`POST /api/files/sort-show`)**:
+  - The "⚡ Sort Now" button inside any show's dropdown card in the Downloads Folder Explorer now targets that specific show directly.
+  - Sorts all episodes of that show into `SHOWS_DIR / <Show Name> / Season XX / ...` with full transaction tracking, database history, and instant rollback support.
+  - Interactive UI with button loading spinner (`<span class="loading-spinner"></span> Sorting...`), disabled state during execution, success toast with count of sorted episodes, and automatic UI refresh.
+- **Standalone Episode Pattern Recognition**:
+  - Added support for standalone `Episode \d{1,4}` and `Ep \d{1,4}` patterns (e.g., `Naruto Episode 207 The Supposed Sealed Ability.mkv`, `Bleach Episode 05.mkv`).
+  - Added support for anime/fansub series formatting without release group prefixes (e.g., `BLEACH꞉ Sennen Kessen-hen - 27 E89717B7].mkv`).
+  - Added support for anime opening/ending patterns (`S03ED01`, `S03OP01`).
+- **Interactive Button Loading States**:
+  - Added loading spinner and disabled state to `⚡ Run Sort Now (Live)`, `⚡ Sort All Files`, and show-specific `⚡ Sort Now` buttons to prevent duplicate runs and give immediate visual feedback.
+
+### Fixed
+- **Show "Sort Now" Button Doing Nothing**:
+  - Fixed issue where clicking "Sort Now" inside a show dropdown appeared to do nothing because episodic shows like Naruto were failing tokenizer matching, getting classified as low-confidence movies, and being quarantined (which were flagged but not moved).
+  - Fixed button calling global sorting instead of targeted show sorting.
+  - Fixed run results panel being hidden on Dashboard tab when viewing Folder Explorer tab.
+- **MKV Video Containers Misclassified as Audio/Music**:
+  - Fixed bug where video containers (`.mkv`, `.mp4`) containing audio streams were routed to audio-only classification if lightweight EBML header parsing didn't match a hardcoded video codec string.
+  - Reordered classifier pipeline so video containers and extensions are always checked as videos first before audio-only handling.
+  - Expanded EBML video track detection in `_parse_ebml` to recognize generic `V_` track headers (including VC-1, DivX, XviD, and MPEG2).
+
 ## [1.0.5] - 2026-09-05
 
 ### Added

@@ -282,3 +282,31 @@ def test_classify_movie_with_apple_tv_tag(classifier):
     assert res.category == "movie"
     assert res.confidence >= 0.75
 
+
+def test_video_file_with_audio_not_classified_as_music(classifier):
+    # Video container .mkv with audio track should never be classified as music
+    scanned = ScannedFile(
+        path=Path("/downloads/Star.Wars.The.Clone.Wars.S01E01.1080p.BluRay.REMUX.VC-1.DD5.1-NOGRP.mkv"),
+        size=4500000000,
+        mtime=1000.0,
+    )
+    tokens = TokenizedFilename(
+        raw_name="Star.Wars.The.Clone.Wars.S01E01.1080p.BluRay.REMUX.VC-1.DD5.1-NOGRP.mkv",
+        title="Star Wars The Clone Wars",
+        season=1,
+        episode=1,
+        is_episodic=True,
+    )
+    meta = MediaMetadata(
+        path=scanned.path,
+        mime_type="video/x-matroska",
+        container="mkv",
+        has_audio=True,
+        has_video=False,  # e.g. exotic codec in container
+    )
+    res = classifier.classify(scanned, tokens, meta)
+    assert res.category == "tv"
+    assert res.confidence >= 0.80
+    assert res.needs_quarantine is False
+
+
