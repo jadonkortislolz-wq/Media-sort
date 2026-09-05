@@ -2958,9 +2958,40 @@ def create_app(
           <div class="panel-title">🎨 Appearance & Themes</div>
           <span class="tag tag-movie" id="tab-active-theme-tag">Cyber Dark</span>
         </div>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-          Select a custom visual theme for your Media Sorter dashboard.
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.85rem;">
+          Select a visual theme from the dropdown menu or the swatch cards below.
         </p>
+
+        <!-- Theme Dropdown Selector Menu -->
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" for="tab-theme-select" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <span style="font-weight: 600; font-size: 0.88rem;">🎨 Theme Dropdown Menu</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);" id="tab-theme-select-label">Cyber Dark</span>
+          </label>
+          <select id="tab-theme-select" class="form-control theme-select" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem); width: 100%;">
+            <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
+            <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
+            <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
+            <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
+            <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
+            <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
+            <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
+            <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
+            <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
+            <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
+            <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
+            <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
+            <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
+            <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
+            <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
+            <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
+            <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
+            <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
+            <option value="nightowl">Nightowl — Deep Navy & Coral</option>
+            <option value="vesper">Vesper — Warm Noir & Copper</option>
+          </select>
+        </div>
+
         <div class="theme-grid">
           <div class="theme-card active" data-theme-id="cyber-dark" onclick="setTheme('cyber-dark')">
             <div class="theme-swatch" style="background: linear-gradient(135deg, #090d16 50%, #38bdf8 50%);"></div>
@@ -3354,6 +3385,8 @@ def create_app(
       const activeThemeObj = THEMES.find(t => t.id === themeId) || THEMES[0];
       const modalLabel = document.getElementById('active-theme-label');
       if (modalLabel) modalLabel.textContent = activeThemeObj.name;
+      const tabSelectLabel = document.getElementById('tab-theme-select-label');
+      if (tabSelectLabel) tabSelectLabel.textContent = activeThemeObj.name;
       const tabTag = document.getElementById('tab-active-theme-tag');
       if (tabTag) tabTag.textContent = activeThemeObj.name;
 
@@ -3371,8 +3404,10 @@ def create_app(
       });
       const tChk = document.getElementById(`tab-check-${themeId}`);
       if (tChk) tChk.style.display = 'block';
-      const themeSelect = document.getElementById('theme-select');
-      if (themeSelect) themeSelect.value = themeId;
+
+      document.querySelectorAll('#theme-select, #tab-theme-select, .theme-select').forEach(sel => {
+        sel.value = themeId;
+      });
     }
 
     function openSettingsModal() {
