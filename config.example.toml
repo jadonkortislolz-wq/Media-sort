@@ -1,0 +1,105 @@
+# =====================================================================
+# Media Sorter Production Configuration (TOML format)
+# =====================================================================
+
+[general]
+dry_run = true
+confidence_threshold = 0.75
+worker_count = 4
+min_file_age_seconds = 300
+action = "move"
+preserve_permissions = true
+log_level = "INFO"
+
+[storage]
+source_dirs = ["incoming", "downloads/completed"]
+destination_base = "organized"
+
+[storage.destination_dirs]
+movies = "Movies"
+tv = "TV Shows"
+anime = "Anime"
+music = "Music"
+audiobooks = "Audiobooks"
+podcasts = "Podcasts"
+home_videos = "Home Videos"
+photos = "Photos"
+archives = "Archives"
+quarantine = "Quarantine"
+
+[conflicts]
+policy = "rename_unique"
+allow_overwrite = false
+backup_dir = ".backup"
+
+[filters]
+include_patterns = ["*"]
+exclude_patterns = [
+    ".*",
+    "*.part",
+    "*.crdownload",
+    "*.!qB",
+    "Thumbs.db",
+    "desktop.ini",
+    "@eaDir",
+    "$RECYCLE.BIN"
+]
+
+[templates]
+movie = "{title} ({year})/{title} ({year}) [{resolution} {codec}].{ext}"
+tv = "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} - {episode_title}.{ext}"
+anime = "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} [{group}].{ext}"
+music = "{artist}/{album} ({year})/{disc:01d}{track:02d} - {title}.{ext}"
+audiobook = "{author}/{title}/{track:02d} - {chapter}.{ext}"
+podcast = "{show}/{year}/{show} - {date} - {title}.{ext}"
+home_video = "{year}/{year}-{month:02d} - {event}/{filename}.{ext}"
+photo = "{year}/{year}-{month:02d}/{year}{month:02d}{day:02d}_{time}_{camera}.{ext}"
+archive = "Archives/{filename}.{ext}"
+quarantine = "Quarantine/{reason}/{filename}.{ext}"
+
+[sidecars]
+enabled = true
+
+[sidecars.subtitles]
+match_video_basename = true
+preserve_language_code = true
+
+[sidecars.artwork]
+match_parent_folder = true
+
+[sidecars.extras]
+detect_trailers = true
+trailer_suffix = "-trailer"
+
+[providers]
+enable_online_metadata = false
+tmdb_api_key = ""
+tvdb_api_key = ""
+rate_limit_per_second = 2.0
+cache_expiry_hours = 72
+
+[notifications]
+enabled = false
+webhook_url = ""
+notify_on_complete = true
+notify_on_failure = true
+
+[symlinks]
+follow_symlinks = false
+handle_broken_symlinks = "skip"
+
+[permissions]
+preserve_attributes = true
+
+[quarantine]
+move_to_quarantine_folder = true
+directory = "Quarantine"
+
+[database]
+path = "media_sorter.db"
+wal_mode = true
+
+[server]
+host = "127.0.0.1"
+port = 8080
+enabled = true

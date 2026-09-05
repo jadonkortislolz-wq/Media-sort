@@ -1,0 +1,107 @@
+# =====================================================================
+# Media Sorter Production Configuration
+# =====================================================================
+
+general:
+  dry_run: true                        # Safe default: always preview before modifying
+  confidence_threshold: 0.75           # Score required to organize (0.0 - 1.0)
+  worker_count: 4                      # Parallel processing workers
+  min_file_age_seconds: 300            # Ignore files modified within 5 minutes (active downloads)
+  action: move                         # move | copy | link | hardlink
+  preserve_permissions: true           # Preserve POSIX/Windows timestamps and attributes
+  log_level: INFO                      # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+storage:
+  source_dirs:
+    - "incoming"
+    - "downloads/completed"
+  destination_base: "organized"
+  destination_dirs:
+    movies: "Movies"
+    tv: "TV Shows"
+    anime: "Anime"
+    music: "Music"
+    audiobooks: "Audiobooks"
+    podcasts: "Podcasts"
+    home_videos: "Home Videos"
+    photos: "Photos"
+    archives: "Archives"
+    quarantine: "Quarantine"
+
+conflicts:
+  policy: rename_unique                # skip | rename_unique | quarantine | error | replace_if_higher_quality
+  allow_overwrite: false               # Never overwrite existing files
+  backup_dir: ".backup"                # Backup folder if replace is configured
+
+filters:
+  include_patterns:
+    - "*"
+  exclude_patterns:
+    - ".*"                             # Hidden files
+    - "*.part"
+    - "*.crdownload"
+    - "*.!qB"
+    - "Thumbs.db"
+    - "desktop.ini"
+    - "@eaDir"
+    - "$RECYCLE.BIN"
+
+templates:
+  movie: "{title} ({year})/{title} ({year}) [{resolution} {codec}].{ext}"
+  tv: "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} - {episode_title}.{ext}"
+  anime: "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} [{group}].{ext}"
+  music: "{artist}/{album} ({year})/{disc:01d}{track:02d} - {title}.{ext}"
+  audiobook: "{author}/{title}/{track:02d} - {chapter}.{ext}"
+  podcast: "{show}/{year}/{show} - {date} - {title}.{ext}"
+  home_video: "{year}/{year}-{month:02d} - {event}/{filename}.{ext}"
+  photo: "{year}/{year}-{month:02d}/{year}{month:02d}{day:02d}_{time}_{camera}.{ext}"
+  archive: "Archives/{filename}.{ext}"
+  quarantine: "Quarantine/{reason}/{filename}.{ext}"
+
+sidecars:
+  enabled: true
+  subtitles:
+    match_video_basename: true
+    preserve_language_code: true
+  artwork:
+    match_parent_folder: true
+  extras:
+    detect_trailers: true
+    trailer_suffix: "-trailer"
+
+providers:
+  enable_online_metadata: false        # Query TMDB / MusicBrainz online
+  tmdb_api_key: null                   # Your TheMovieDB API key
+  tvdb_api_key: null                   # Your TVDB API key
+  rate_limit_per_second: 2.0           # API throttle limit
+  cache_expiry_hours: 72               # Cache duration for API metadata
+
+notifications:
+  enabled: false                       # Send webhook on batch completion
+  webhook_url: null                    # Webhook URL (Slack, Discord, generic)
+  notify_on_complete: true
+  notify_on_failure: true
+
+symlinks:
+  follow_symlinks: false               # Traversal into symlink directories
+  handle_broken_symlinks: skip         # skip | quarantine
+
+permissions:
+  preserve_attributes: true            # Preserve mtime, mode, flags
+  file_mode: null                      # e.g. "0644"
+  dir_mode: null                       # e.g. "0755"
+  owner: null                          # System username or UID
+  group: null                          # System group or GID
+
+quarantine:
+  move_to_quarantine_folder: true      # Physically isolate low confidence files
+  directory: "Quarantine"
+
+database:
+  path: "media_sorter.db"
+  wal_mode: true
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  enabled: true

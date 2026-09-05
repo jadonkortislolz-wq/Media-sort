@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and test artifacts
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+*.log
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Local database & runtime state
+*.db
+*.db-shm
+*.db-wal
+*.lock
+media_sorter.db
+media_sorter.lock
+media_sorter_posters.json
+
+# Environment variables (contains private user paths)
+.env
+
+# Runtime sample reports & local media directories
+sample_dry_run_report.json
+downloads/
+movies/
+shows/
+incoming/
+organized/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

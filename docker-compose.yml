@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  media-sorter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: media-sorter:latest
+    container_name: media-sorter
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    env_file:
+      - .env
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      # Mount downloads source folder
+      - ./downloads:/app/downloads:rw
+      # Mount organized movies & shows folders
+      - ./movies:/app/movies:rw
+      - ./shows:/app/shows:rw
+      # Persistent SQLite database and operation journals
+      - ./media_sorter.db:/app/media_sorter.db:rw
+      - ./.env:/app/.env:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "media-sorter"
+version = "0.1.0"
+description = "High‑performance reliable media sorter"
+authors = ["Jadon <jadon@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "media_sorter", from = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+typer = ">=0.12.0"
+"pydantic-settings" = ">=2.2.1"
+pydantic = ">=2.7.0"
+pyyaml = ">=6.0.0"
+rich = ">=13.0.0"
+sqlalchemy = {version = ">=2.0.30", extras = ["sqlite"]}
+alembic = ">=1.13.0"
+structlog = ">=24.2.0"
+requests = ">=2.31.0"
+fastapi = ">=0.110.0"
+uvicorn = ">=0.28.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+pytest-asyncio = ">=0.23.0"
+hypothesis = ">=6.100.0"
+black = ">=24.0.0"
+isort = ">=5.13.0"
+
+[tool.poetry.scripts]
+media-sorter = "media_sorter.cli:app"
+
+[build-system]
+requires = ["poetry-core>=1.2.0"]
+build-backend = "poetry.core.masonry.api"
