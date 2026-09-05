@@ -664,6 +664,41 @@ def create_app(
         poster = fetch_show_poster(title)
         return {"title": title, "poster_url": poster}
 
+    # --- Updater Endpoints ---
+    import subprocess, json, urllib.request
+    GITHUB_OWNER = "jadonkortislolz-wq"
+    GITHUB_REPO = "Media-sort"
+    GITHUB_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/tags"
+    GITHUB_TOKEN = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+
+    def get_latest_tag() -> str:
+        try:
+            req = urllib.request.Request(GITHUB_API, headers={"User-Agent": "MediaSorter-Updater", "Authorization": f"token {GITHUB_TOKEN}"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    data = json.load(resp)
+                    if isinstance(data, list) and data:
+                        return data[0].get("name", "")
+        except Exception as e:
+            logger.error("Failed to fetch latest tag", error=str(e))
+        return ""
+
+    @app.get("/api/check_update")
+    async def check_update():
+        from .__init__ import __version__
+        latest = get_latest_tag()
+        return {"current_version": __version__, "latest_version": latest, "update_available": bool(latest and latest != __version__)}
+
+    @app.post("/api/perform_update")
+    async def perform_update(background: BackgroundTasks):
+        def git_pull():
+            repo_path = Path(__file__).resolve().parents[2]
+            result = subprocess.run(["git", "pull", "origin", "main"], cwd=str(repo_path), capture_output=True, text=True)
+            logger.info("Git pull result", stdout=result.stdout, stderr=result.stderr)
+        background.add_task(git_pull)
+        return {"status": "update_started"}
+    # End of updater endpoints
+
     @app.get("/", response_class=HTMLResponse)
     def render_dashboard():
         """Serve the interactive modern Web Dashboard."""
