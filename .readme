@@ -19,7 +19,7 @@
 
 - 🛡️ **Zero Silent Data Loss Guarantee**: Files are never deleted or silently overwritten. Unsure files are safely quarantined.
 - 🔍 **Multi-Signal Classification Engine**: Classifies media using filename patterns, tokens, codecs, container streams, ID3v2/Vorbis tags, and episode hierarchies.
-- 🎨 **Modern Interactive Web UI**: Fully responsive dashboard with **5 Color Themes**, Folder Explorer with show detection & live TV show artwork, Quarantine Queue, and Settings.
+- 🎨 **Modern Interactive Web UI**: Fully responsive dashboard with customizable themes, Folder Explorer with show detection & live TV show artwork, Quarantine Queue, and Settings.
 - ⚡ **Non-Shifting Scrollable Viewport**: Smoothly scroll through 500+ file libraries with sticky table headers without shifting the top navigation bar.
 - ↩️ **Atomic Operations & 1-Click Rollback**: Every batch is journaled in SQLite WAL mode. Easily invert any batch with a single click or CLI command.
 - 🚀 **Production Ready**: Native PM2 integration, Docker & Docker Compose setup, and systemd service templates included.
@@ -78,21 +78,13 @@
 - **Collapsible Cards**: Expand and collapse individual shows or use "Expand All" / "Collapse All" controls.
 - **Single Files Table**: Non-episodic files and movies are cleanly separated with detected metadata.
 
-### 2. 5 Built-in Themes
-Easily switch between 5 curated themes saved directly to your browser's local storage:
-1. **Cyber Dark** (Default: Midnight & Sky Cyan)
-2. **Midnight OLED** (Pure True Black & Neon Pink)
-3. **Nord Arctic** (Nordic Frost & Slate Blue)
-4. **Dracula Purple** (Twilight Violet & Pastel)
-5. **Emerald Matrix** (Obsidian & Matrix Green)
-
-### 3. Dedicated Settings Modal & Process Control
+### 2. Dedicated Settings Modal & Process Control
 - Access settings via the **⚙️ Settings** button in the header.
-- Switch themes with live visual cards.
+- Switch visual themes with live color cards.
 - **Restart Server Process**: Restarts the PM2 process with an automatic reconnection overlay.
 - **Clear Activity History**: Wipes historical batch records with a single click.
 
-### 4. Quarantine Review & Resolution
+### 3. Quarantine Review & Resolution
 - Review items with lower confidence.
 - Sort them into **Movies** or **Shows** with one click.
 

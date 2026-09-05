@@ -777,6 +777,101 @@ def create_app(
       --badge-bg: #11291d;
     }
 
+    /* 6. Solar Sunset (Warm Charcoal & Radiant Amber) */
+    [data-theme="solar-sunset"] {
+      --bg: #100b0b;
+      --card-bg: #1c1414;
+      --card-hover: #291c1c;
+      --border: #422a2a;
+      --text: #fef2f2;
+      --text-muted: #b89898;
+      --accent: #f97316;
+      --accent-hover: #ea580c;
+      --emerald: #10b981;
+      --emerald-hover: #059669;
+      --amber: #fbbf24;
+      --rose: #f43f5e;
+      --indigo: #fb923c;
+      --subbar-bg: rgba(16, 11, 11, 0.85);
+      --badge-bg: #291c1c;
+    }
+
+    /* 7. Tokyo Night (Deep Indigo & Electric Cyan) */
+    [data-theme="tokyo-night"] {
+      --bg: #1a1b26;
+      --card-bg: #24283b;
+      --card-hover: #2f3549;
+      --border: #414868;
+      --text: #c0caf5;
+      --text-muted: #7982a9;
+      --accent: #7aa2f7;
+      --accent-hover: #3d59a1;
+      --emerald: #9ece6a;
+      --emerald-hover: #73984e;
+      --amber: #e0af68;
+      --rose: #f7768e;
+      --indigo: #bb9af7;
+      --subbar-bg: rgba(26, 27, 38, 0.85);
+      --badge-bg: #2f3549;
+    }
+
+    /* 8. Synthwave 80s (Retro Violet & Neon Pink) */
+    [data-theme="synthwave"] {
+      --bg: #140d22;
+      --card-bg: #211538;
+      --card-hover: #2d1c4d;
+      --border: #4a2c7a;
+      --text: #fdf4ff;
+      --text-muted: #aa95cc;
+      --accent: #d946ef;
+      --accent-hover: #c026d3;
+      --emerald: #06b6d4;
+      --emerald-hover: #0891b2;
+      --amber: #f59e0b;
+      --rose: #ff007f;
+      --indigo: #ec4899;
+      --subbar-bg: rgba(20, 13, 34, 0.85);
+      --badge-bg: #2d1c4d;
+    }
+
+    /* 9. Abyssal Ocean (Deep Marine & Aquamarine) */
+    [data-theme="abyssal-ocean"] {
+      --bg: #051018;
+      --card-bg: #0c1b26;
+      --card-hover: #132838;
+      --border: #1a3c54;
+      --text: #e0f2fe;
+      --text-muted: #739bb8;
+      --accent: #14b8a6;
+      --accent-hover: #0d9488;
+      --emerald: #2dd4bf;
+      --emerald-hover: #14b8a6;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --indigo: #38bdf8;
+      --subbar-bg: rgba(5, 16, 24, 0.85);
+      --badge-bg: #132838;
+    }
+
+    /* 10. Monokai Pro (Dark Carbon & Vivid Gold) */
+    [data-theme="monokai-pro"] {
+      --bg: #1d1b1d;
+      --card-bg: #282528;
+      --card-hover: #363236;
+      --border: #474347;
+      --text: #fcfcfa;
+      --text-muted: #9c999c;
+      --accent: #ffd866;
+      --accent-hover: #e6c152;
+      --emerald: #a9dc76;
+      --emerald-hover: #8fbc60;
+      --amber: #fc9867;
+      --rose: #ff6188;
+      --indigo: #78dce8;
+      --subbar-bg: rgba(29, 27, 29, 0.85);
+      --badge-bg: #363236;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     /* Scrollable app viewport - list scrolls without moving website header */
@@ -1438,7 +1533,7 @@ def create_app(
       <!-- Panel 1: Theme & Interface Preferences -->
       <div class="panel">
         <div class="panel-header">
-          <div class="panel-title">🎨 Appearance & Themes (5 Themes)</div>
+          <div class="panel-title">🎨 Appearance & Themes</div>
           <span class="tag tag-movie" id="tab-active-theme-tag">Cyber Dark</span>
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
@@ -1474,6 +1569,36 @@ def create_app(
             <div class="theme-title">Emerald Matrix</div>
             <div class="theme-desc">Obsidian & Vivid Green</div>
             <div class="theme-check" id="tab-check-emerald-matrix">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="solar-sunset" onclick="setTheme('solar-sunset')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #100b0b 50%, #f97316 50%);"></div>
+            <div class="theme-title">Solar Sunset</div>
+            <div class="theme-desc">Warm Charcoal & Amber</div>
+            <div class="theme-check" id="tab-check-solar-sunset">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="tokyo-night" onclick="setTheme('tokyo-night')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #7aa2f7 50%);"></div>
+            <div class="theme-title">Tokyo Night</div>
+            <div class="theme-desc">Deep Indigo & Cyan</div>
+            <div class="theme-check" id="tab-check-tokyo-night">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="synthwave" onclick="setTheme('synthwave')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #140d22 50%, #d946ef 50%);"></div>
+            <div class="theme-title">Synthwave 80s</div>
+            <div class="theme-desc">Retro Violet & Pink</div>
+            <div class="theme-check" id="tab-check-synthwave">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="abyssal-ocean" onclick="setTheme('abyssal-ocean')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #051018 50%, #14b8a6 50%);"></div>
+            <div class="theme-title">Abyssal Ocean</div>
+            <div class="theme-desc">Deep Marine & Teal</div>
+            <div class="theme-check" id="tab-check-abyssal-ocean">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="monokai-pro" onclick="setTheme('monokai-pro')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d1b1d 50%, #ffd866 50%);"></div>
+            <div class="theme-title">Monokai Pro</div>
+            <div class="theme-desc">Dark Carbon & Gold</div>
+            <div class="theme-check" id="tab-check-monokai-pro">✓</div>
           </div>
         </div>
 
@@ -1566,7 +1691,7 @@ def create_app(
       <!-- 1. THEMES SECTION -->
       <div class="form-group">
         <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
-          <span>🎨 Color Theme (5 Themes)</span>
+          <span>🎨 Color Theme</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);" id="active-theme-label">Cyber Dark</span>
         </label>
         <div class="theme-grid">
@@ -1599,6 +1724,36 @@ def create_app(
             <div class="theme-title">Emerald Matrix</div>
             <div class="theme-desc">Obsidian & Vivid Green</div>
             <div class="theme-check" id="check-emerald-matrix">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="solar-sunset" onclick="setTheme('solar-sunset')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #100b0b 50%, #f97316 50%);"></div>
+            <div class="theme-title">Solar Sunset</div>
+            <div class="theme-desc">Warm Charcoal & Amber</div>
+            <div class="theme-check" id="check-solar-sunset">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="tokyo-night" onclick="setTheme('tokyo-night')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #7aa2f7 50%);"></div>
+            <div class="theme-title">Tokyo Night</div>
+            <div class="theme-desc">Deep Indigo & Cyan</div>
+            <div class="theme-check" id="check-tokyo-night">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="synthwave" onclick="setTheme('synthwave')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #140d22 50%, #d946ef 50%);"></div>
+            <div class="theme-title">Synthwave 80s</div>
+            <div class="theme-desc">Retro Violet & Pink</div>
+            <div class="theme-check" id="check-synthwave">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="abyssal-ocean" onclick="setTheme('abyssal-ocean')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #051018 50%, #14b8a6 50%);"></div>
+            <div class="theme-title">Abyssal Ocean</div>
+            <div class="theme-desc">Deep Marine & Teal</div>
+            <div class="theme-check" id="check-abyssal-ocean">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="monokai-pro" onclick="setTheme('monokai-pro')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d1b1d 50%, #ffd866 50%);"></div>
+            <div class="theme-title">Monokai Pro</div>
+            <div class="theme-desc">Dark Carbon & Gold</div>
+            <div class="theme-check" id="check-monokai-pro">✓</div>
           </div>
         </div>
       </div>
@@ -1651,6 +1806,11 @@ def create_app(
       { id: 'nord-frost', name: 'Nord Arctic', desc: 'Nordic Frost & Slate' },
       { id: 'dracula', name: 'Dracula Purple', desc: 'Twilight Violet & Pastel' },
       { id: 'emerald-matrix', name: 'Emerald Matrix', desc: 'Obsidian & Vivid Green' },
+      { id: 'solar-sunset', name: 'Solar Sunset', desc: 'Warm Charcoal & Amber' },
+      { id: 'tokyo-night', name: 'Tokyo Night', desc: 'Deep Indigo & Cyan' },
+      { id: 'synthwave', name: 'Synthwave 80s', desc: 'Retro Violet & Pink' },
+      { id: 'abyssal-ocean', name: 'Abyssal Ocean', desc: 'Deep Marine & Teal' },
+      { id: 'monokai-pro', name: 'Monokai Pro', desc: 'Dark Carbon & Gold' },
     ];
 
     function setTheme(themeId) {
