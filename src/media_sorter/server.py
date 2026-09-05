@@ -2977,6 +2977,8 @@ def create_app(
         }
 
         loadDashboard();
+        loadFiles();
+        loadQuarantine();
       } catch (e) {
         showToast('Error executing run: ' + e);
       }
@@ -2994,6 +2996,7 @@ def create_app(
         showToast(`Rollback complete: ${data.reverted_files} files restored to source!`);
         loadDashboard();
         loadFiles();
+        loadQuarantine();
       } catch (e) {
         showToast('Error executing rollback: ' + e);
       }
@@ -3011,6 +3014,7 @@ def create_app(
         showToast(`Rollback complete: ${data.reverted_files} files restored!`);
         loadDashboard();
         loadFiles();
+        loadQuarantine();
       } catch (e) {
         showToast('Error executing rollback: ' + e);
       }
@@ -3027,6 +3031,7 @@ def create_app(
         showToast(`Rollback all complete: ${data.reverted_files} files restored to source!`);
         loadDashboard();
         loadFiles();
+        loadQuarantine();
       } catch (e) {
         showToast('Error executing rollback all: ' + e);
       }

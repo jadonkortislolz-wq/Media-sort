@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `POST /api/quarantine/bulk-undo`: Bulk unflags pending items or rollbacks all resolved quarantine files back to original source directories.
 - **Manual Modal File Switcher**:
   - Added file picker dropdown inside `modal-manual-sort` when multiple quarantine items are available, enabling switching between items without reopening the modal.
+- **Automatic Folder Explorer & Queue Refresh**:
+  - Automatically re-scans and refreshes the Downloads Folder Explorer (`loadFiles`) and Quarantine queue (`loadQuarantine`) immediately whenever sorting runs (live or preview) or batch rollbacks complete.
 - **Granular & Global Undo Actions**:
   - Added `↩️ Undo All Resolved` button to easily restore all resolved quarantine files to their source folders.
   - Per-item unflagging for pending items and per-item rollback for resolved items.
