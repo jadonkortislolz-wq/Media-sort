@@ -2992,7 +2992,12 @@ def create_app(
           </select>
         </div>
 
-        <div class="theme-grid">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted);">🎨 Swatch Grid (All 20 Themes)</span>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-toggle-theme-grid" onclick="toggleThemeGrid()" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">Hide Swatch Grid</button>
+        </div>
+
+        <div class="theme-grid" id="theme-grid-container">
           <div class="theme-card active" data-theme-id="cyber-dark" onclick="setTheme('cyber-dark')">
             <div class="theme-swatch" style="background: linear-gradient(135deg, #090d16 50%, #38bdf8 50%);"></div>
             <div class="theme-title">Cyber Dark</div>
@@ -3076,6 +3081,42 @@ def create_app(
             <div class="theme-title">Aurora Glass</div>
             <div class="theme-desc">Frosted Mesh & Glassmorphism</div>
             <div class="theme-check" id="tab-check-aurora-glass">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="catppuccin-mocha" onclick="setTheme('catppuccin-mocha')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1e1e2e 50%, #f5c2e7 50%);"></div>
+            <div class="theme-title">Catppuccin Mocha</div>
+            <div class="theme-desc">Warm Pastel & Rosewater</div>
+            <div class="theme-check" id="tab-check-catppuccin-mocha">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="rose-pine" onclick="setTheme('rose-pine')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #191724 50%, #ebbcba 50%);"></div>
+            <div class="theme-title">Rosé Pine</div>
+            <div class="theme-desc">Muted Rose & Twilight</div>
+            <div class="theme-check" id="tab-check-rose-pine">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="gruvbox-dark" onclick="setTheme('gruvbox-dark')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #1d2021 50%, #fe8019 50%);"></div>
+            <div class="theme-title">Gruvbox Dark</div>
+            <div class="theme-desc">Earthy Retro & Warm Orange</div>
+            <div class="theme-check" id="tab-check-gruvbox-dark">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="solarized-dark" onclick="setTheme('solarized-dark')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #002b36 50%, #93a1a1 50%);"></div>
+            <div class="theme-title">Solarized Dark</div>
+            <div class="theme-desc">Scientific Blue & Yellow</div>
+            <div class="theme-check" id="tab-check-solarized-dark">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="nightowl" onclick="setTheme('nightowl')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #011627 50%, #7e57c2 50%);"></div>
+            <div class="theme-title">Nightowl</div>
+            <div class="theme-desc">Deep Navy & Coral</div>
+            <div class="theme-check" id="tab-check-nightowl">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="vesper" onclick="setTheme('vesper')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #101010 50%, #ffc799 50%);"></div>
+            <div class="theme-title">Vesper</div>
+            <div class="theme-desc">Warm Noir & Copper</div>
+            <div class="theme-check" id="tab-check-vesper">✓</div>
           </div>
         </div>
 
@@ -3408,6 +3449,18 @@ def create_app(
       document.querySelectorAll('#theme-select, #tab-theme-select, .theme-select').forEach(sel => {
         sel.value = themeId;
       });
+    }
+
+    function toggleThemeGrid() {
+      const grid = document.getElementById('theme-grid-container');
+      const btn = document.getElementById('btn-toggle-theme-grid');
+      if (!grid || !btn) return;
+      const isHidden = grid.style.display === 'none';
+      grid.style.display = isHidden ? 'grid' : 'none';
+      btn.textContent = isHidden ? 'Hide Swatch Grid' : 'Show Swatch Grid (20)';
+      try {
+        localStorage.setItem('ms-theme-grid-visible', isHidden ? 'true' : 'false');
+      } catch (e) {}
     }
 
     function openSettingsModal() {
@@ -4879,6 +4932,13 @@ def create_app(
     try {
       const savedTheme = localStorage.getItem('ms-theme') || 'cyber-dark';
       setTheme(savedTheme);
+      const gridVisible = localStorage.getItem('ms-theme-grid-visible');
+      if (gridVisible === 'false') {
+        const grid = document.getElementById('theme-grid-container');
+        const btn = document.getElementById('btn-toggle-theme-grid');
+        if (grid) grid.style.display = 'none';
+        if (btn) btn.textContent = 'Show Swatch Grid (20)';
+      }
     } catch (e) {}
 
     async function handleUpdate() {

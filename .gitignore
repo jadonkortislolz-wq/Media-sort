@@ -46,3 +46,7 @@ organized/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# User review images
+prompt_images/
+
