@@ -690,6 +690,7 @@ def create_app(
       --border: #334155;
       --text: #f8fafc;
       --text-muted: #94a3b8;
+      --text-title: #ffffff;
       --accent: #38bdf8;
       --accent-hover: #0284c7;
       --emerald: #10b981;
@@ -699,6 +700,17 @@ def create_app(
       --indigo: #6366f1;
       --subbar-bg: rgba(0, 0, 0, 0.25);
       --badge-bg: #1e293b;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius-card: 0.6rem;
+      --radius-btn: 0.375rem;
+      --radius-sm: 0.25rem;
+      --radius-badge: 9999px;
+      --radius-poster: 0.35rem;
+      --card-border: 1px solid var(--border);
+      --card-shadow: none;
+      --btn-border: 1px solid transparent;
+      --btn-shadow: none;
+      --text-glow: none;
     }
 
     /* 2. Midnight OLED (True Black & Neon Pink) */
@@ -872,6 +884,312 @@ def create_app(
       --badge-bg: #363236;
     }
 
+    /* 11. Retro Matrix CRT (Monospace & Neon Phosphor) */
+    [data-theme="terminal-crt"] {
+      --bg: #020703;
+      --card-bg: #051108;
+      --card-hover: #0a200f;
+      --border: #00ff66;
+      --text: #5af78e;
+      --text-muted: #1e824c;
+      --text-title: #00ff66;
+      --accent: #00ff66;
+      --accent-hover: #33ff88;
+      --emerald: #00ff66;
+      --emerald-hover: #33ff88;
+      --amber: #ffcc00;
+      --rose: #ff3333;
+      --indigo: #00e5ff;
+      --subbar-bg: rgba(0, 20, 5, 0.9);
+      --badge-bg: #041407;
+      --font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Courier, monospace;
+      --radius-card: 0px;
+      --radius-btn: 0px;
+      --radius-sm: 0px;
+      --radius-badge: 0px;
+      --radius-poster: 0px;
+      --card-border: 1px solid #00ff66;
+      --card-shadow: 0 0 12px rgba(0, 255, 102, 0.15), inset 0 0 6px rgba(0, 255, 102, 0.05);
+      --btn-border: 1px solid #00ff66;
+      --btn-shadow: 0 0 8px rgba(0, 255, 102, 0.25);
+      --text-glow: 0 0 6px rgba(0, 255, 102, 0.5);
+    }
+    [data-theme="terminal-crt"] body {
+      background: radial-gradient(circle at 50% 50%, #061509 0%, #020703 100%);
+    }
+    [data-theme="terminal-crt"] .top-bar-area {
+      border-bottom: 1px solid #00ff66;
+      box-shadow: 0 2px 10px rgba(0, 255, 102, 0.15);
+    }
+    [data-theme="terminal-crt"] .brand-title {
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    [data-theme="terminal-crt"] .btn {
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    [data-theme="terminal-crt"] .btn-accent {
+      background: #00ff66;
+      color: #020703;
+      font-weight: 700;
+    }
+    [data-theme="terminal-crt"] .btn-accent:hover {
+      background: #33ff88;
+      color: #020703;
+      box-shadow: 0 0 12px #00ff66;
+    }
+    [data-theme="terminal-crt"] .btn-emerald {
+      background: #032b13;
+      color: #00ff66;
+      border: 1px solid #00ff66;
+    }
+    [data-theme="terminal-crt"] .btn-emerald:hover {
+      background: #00ff66;
+      color: #020703;
+    }
+    [data-theme="terminal-crt"] .nav-tab.active {
+      color: #00ff66;
+      border-bottom: 2px solid #00ff66;
+      text-shadow: 0 0 8px #00ff66;
+    }
+    [data-theme="terminal-crt"] .theme-card {
+      background: #041407;
+      border: 1px solid #00ff66;
+      border-radius: 0px;
+    }
+    [data-theme="terminal-crt"] .theme-card.active {
+      border-color: #00ff66;
+      background: rgba(0, 255, 102, 0.15);
+      box-shadow: 0 0 10px rgba(0, 255, 102, 0.3);
+    }
+
+    /* 12. Paper Light (Clean Studio / Pure Light Mode) */
+    [data-theme="paper-light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-hover: #f1f5f9;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-title: #0f172a;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --emerald: #059669;
+      --emerald-hover: #047857;
+      --amber: #d97706;
+      --rose: #e11d48;
+      --indigo: #4f46e5;
+      --subbar-bg: #f8fafc;
+      --badge-bg: #e2e8f0;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius-card: 0.75rem;
+      --radius-btn: 0.5rem;
+      --radius-sm: 0.35rem;
+      --radius-badge: 9999px;
+      --radius-poster: 0.4rem;
+      --card-border: 1px solid #e2e8f0;
+      --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+      --btn-border: 1px solid transparent;
+      --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      --text-glow: none;
+    }
+    [data-theme="paper-light"] .top-bar-area {
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+    [data-theme="paper-light"] .show-dropdown-header {
+      background: #ffffff;
+    }
+    [data-theme="paper-light"] .show-dropdown-header:hover {
+      background: #f8fafc;
+    }
+    [data-theme="paper-light"] .show-dropdown-body {
+      background: #fafafa;
+    }
+    [data-theme="paper-light"] table thead th {
+      background: #f8fafc;
+    }
+    [data-theme="paper-light"] tr:hover td {
+      background: rgba(0, 0, 0, 0.02);
+    }
+    [data-theme="paper-light"] .modal-content {
+      background: #ffffff;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    }
+    [data-theme="paper-light"] .theme-card {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+    [data-theme="paper-light"] .btn-accent {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    [data-theme="paper-light"] .btn-accent:hover {
+      background: #1d4ed8;
+      color: #ffffff;
+    }
+    [data-theme="paper-light"] .brand-icon {
+      background: rgba(37, 99, 235, 0.1);
+    }
+
+    /* 13. Neo-Brutalism Pop */
+    [data-theme="neo-brutalism"] {
+      --bg: #fffdf5;
+      --card-bg: #ffffff;
+      --card-hover: #fef08a;
+      --border: #000000;
+      --text: #000000;
+      --text-muted: #4b5563;
+      --text-title: #000000;
+      --accent: #ffd12d;
+      --accent-hover: #fcc419;
+      --emerald: #2fe084;
+      --emerald-hover: #22c55e;
+      --amber: #ff922b;
+      --rose: #ff6b6b;
+      --indigo: #748ffc;
+      --subbar-bg: #fff3bf;
+      --badge-bg: #fff3bf;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius-card: 0.5rem;
+      --radius-btn: 0.35rem;
+      --radius-sm: 0.25rem;
+      --radius-badge: 0.25rem;
+      --radius-poster: 0.25rem;
+      --card-border: 2.5px solid #000000;
+      --card-shadow: 4px 4px 0px #000000;
+      --btn-border: 2px solid #000000;
+      --btn-shadow: 3px 3px 0px #000000;
+      --text-glow: none;
+    }
+    [data-theme="neo-brutalism"] .top-bar-area {
+      background: #fffdf5;
+      border-bottom: 2.5px solid #000000;
+    }
+    [data-theme="neo-brutalism"] .btn {
+      border: 2px solid #000000 !important;
+      box-shadow: 3px 3px 0px #000000;
+      font-weight: 700;
+      color: #000000 !important;
+    }
+    [data-theme="neo-brutalism"] .btn:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0px #000000;
+    }
+    [data-theme="neo-brutalism"] .btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000000;
+    }
+    [data-theme="neo-brutalism"] .stat-card,
+    [data-theme="neo-brutalism"] .panel,
+    [data-theme="neo-brutalism"] .show-dropdown,
+    [data-theme="neo-brutalism"] .modal-content {
+      border: 2.5px solid #000000;
+      box-shadow: 4px 4px 0px #000000;
+    }
+    [data-theme="neo-brutalism"] .tag {
+      border: 1.5px solid #000000;
+      font-weight: 700;
+      color: #000000 !important;
+    }
+    [data-theme="neo-brutalism"] .show-dropdown-header {
+      background: #fffdf5;
+      border-bottom: 2px solid #000000;
+    }
+    [data-theme="neo-brutalism"] .show-dropdown-body {
+      background: #ffffff;
+    }
+    [data-theme="neo-brutalism"] table thead th {
+      background: #fff3bf;
+      color: #000000;
+      border-bottom: 2px solid #000000;
+    }
+    [data-theme="neo-brutalism"] table td {
+      border-bottom: 1.5px solid #000000;
+    }
+    [data-theme="neo-brutalism"] tr:hover td {
+      background: rgba(0, 0, 0, 0.03);
+    }
+    [data-theme="neo-brutalism"] .theme-card {
+      border: 2px solid #000000;
+      box-shadow: 3px 3px 0px #000000;
+      background: #ffffff;
+    }
+    [data-theme="neo-brutalism"] .brand-icon {
+      border: 2px solid #000000;
+      box-shadow: 2px 2px 0px #000000;
+      background: #ffd12d;
+      color: #000000;
+    }
+    [data-theme="neo-brutalism"] .nav-tab.active {
+      color: #000000;
+      border-bottom: 3px solid #000000;
+      font-weight: 800;
+    }
+
+    /* 14. Frosted Aurora Glassmorphism */
+    [data-theme="aurora-glass"] {
+      --bg: #0c0f1d;
+      --card-bg: rgba(22, 27, 46, 0.65);
+      --card-hover: rgba(30, 38, 64, 0.75);
+      --border: rgba(255, 255, 255, 0.14);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-title: #ffffff;
+      --accent: #a855f7;
+      --accent-hover: #9333ea;
+      --emerald: #06b6d4;
+      --emerald-hover: #0891b2;
+      --amber: #f59e0b;
+      --rose: #ec4899;
+      --indigo: #6366f1;
+      --subbar-bg: rgba(14, 18, 34, 0.7);
+      --badge-bg: rgba(255, 255, 255, 0.08);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius-card: 1rem;
+      --radius-btn: 0.65rem;
+      --radius-sm: 0.45rem;
+      --radius-badge: 9999px;
+      --radius-poster: 0.5rem;
+      --card-border: 1px solid rgba(255, 255, 255, 0.14);
+      --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --btn-border: 1px solid rgba(255, 255, 255, 0.16);
+      --btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      --text-glow: 0 0 12px rgba(168, 85, 247, 0.35);
+    }
+    [data-theme="aurora-glass"] body {
+      background: radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.28) 0%, transparent 45%),
+                  radial-gradient(circle at 85% 25%, rgba(236, 72, 153, 0.22) 0%, transparent 45%),
+                  radial-gradient(circle at 50% 85%, rgba(6, 182, 212, 0.2) 0%, transparent 50%),
+                  #090c17;
+      background-attachment: fixed;
+    }
+    [data-theme="aurora-glass"] .top-bar-area {
+      background: rgba(12, 15, 29, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    [data-theme="aurora-glass"] .stat-card,
+    [data-theme="aurora-glass"] .panel,
+    [data-theme="aurora-glass"] .show-dropdown,
+    [data-theme="aurora-glass"] .modal-content {
+      background: rgba(22, 27, 46, 0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+    }
+    [data-theme="aurora-glass"] .btn {
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    [data-theme="aurora-glass"] .show-dropdown-header {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     /* Scrollable app viewport - list scrolls without moving website header */
@@ -882,7 +1200,7 @@ def create_app(
       overflow: hidden;
     }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
       background: var(--bg);
       color: var(--text);
       line-height: 1.5;
@@ -896,7 +1214,7 @@ def create_app(
     .top-bar-area {
       flex-shrink: 0;
       background: var(--bg);
-      border-bottom: 1px solid var(--border);
+      border-bottom: var(--card-border, 1px solid var(--border));
       padding: 1.15rem 2rem 0 2rem;
       z-index: 100;
     }
@@ -918,19 +1236,21 @@ def create_app(
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 0.5rem;
+      border-radius: var(--radius-btn, 0.5rem);
     }
-    .brand-title { font-size: 1.5rem; font-weight: 700; color: #fff; letter-spacing: -0.025em; }
+    .brand-title { font-size: 1.5rem; font-weight: 700; color: var(--text-title, #fff); letter-spacing: -0.025em; text-shadow: var(--text-glow, none); }
     .brand-subtitle { font-size: 0.8rem; color: var(--text-muted); }
     .header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 
     .btn {
       padding: 0.5rem 1rem;
-      border-radius: 0.375rem;
+      border-radius: var(--radius-btn, 0.375rem);
       font-size: 0.875rem;
       font-weight: 600;
       cursor: pointer;
-      border: 1px solid transparent;
+      border: var(--btn-border, 1px solid transparent);
+      box-shadow: var(--btn-shadow, none);
+      font-family: inherit;
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
@@ -944,7 +1264,7 @@ def create_app(
     .btn-amber:hover { background: var(--amber); color: #000; }
     .btn-outline { background: transparent; border-color: var(--border); color: var(--text); }
     .btn-outline:hover { background: var(--card-hover); }
-    .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+    .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: var(--radius-sm, 0.25rem); }
 
     .nav-tabs {
       display: flex;
@@ -981,17 +1301,19 @@ def create_app(
     }
     .stat-card {
       background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 0.6rem;
+      border: var(--card-border, 1px solid var(--border));
+      border-radius: var(--radius-card, 0.6rem);
+      box-shadow: var(--card-shadow, none);
       padding: 1.25rem;
     }
     .stat-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 0.35rem; }
-    .stat-val { font-size: 1.75rem; font-weight: 700; color: #fff; }
+    .stat-val { font-size: 1.75rem; font-weight: 700; color: var(--text-title, #fff); text-shadow: var(--text-glow, none); }
 
     .panel {
       background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 0.6rem;
+      border: var(--card-border, 1px solid var(--border));
+      border-radius: var(--radius-card, 0.6rem);
+      box-shadow: var(--card-shadow, none);
       padding: 1.25rem;
       margin-bottom: 1.5rem;
     }
@@ -1001,7 +1323,7 @@ def create_app(
       align-items: center;
       margin-bottom: 1rem;
     }
-    .panel-title { font-size: 1.1rem; font-weight: 600; }
+    .panel-title { font-size: 1.1rem; font-weight: 600; color: var(--text-title, #fff); text-shadow: var(--text-glow, none); }
 
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th { padding: 0.65rem 0.75rem; color: var(--text-muted); font-size: 0.8rem; font-weight: 600; border-bottom: 1px solid var(--border); background: var(--card-bg); }
@@ -1011,7 +1333,7 @@ def create_app(
     .tag {
       display: inline-block;
       padding: 0.15rem 0.5rem;
-      border-radius: 0.25rem;
+      border-radius: var(--radius-sm, 0.25rem);
       font-size: 0.75rem;
       font-weight: 600;
     }
@@ -1027,9 +1349,10 @@ def create_app(
       width: 100%;
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 0.375rem;
+      border-radius: var(--radius-sm, 0.375rem);
       padding: 0.6rem 0.75rem;
       color: var(--text);
+      font-family: inherit;
       font-size: 0.875rem;
     }
     .form-control:focus { outline: none; border-color: var(--accent); }
@@ -1067,8 +1390,9 @@ def create_app(
     /* Show Dropdowns & Downloads Explorer */
     .show-dropdown {
       background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 0.6rem;
+      border: var(--card-border, 1px solid var(--border));
+      border-radius: var(--radius-card, 0.6rem);
+      box-shadow: var(--card-shadow, none);
       margin-bottom: 0.85rem;
       overflow: hidden;
       transition: border-color 0.2s, box-shadow 0.2s;
@@ -1109,14 +1433,15 @@ def create_app(
     .show-dropdown-title {
       font-size: 1rem;
       font-weight: 600;
-      color: #fff;
+      color: var(--text-title, #fff);
+      text-shadow: var(--text-glow, none);
     }
     .show-dropdown-badge {
       font-size: 0.75rem;
       background: var(--badge-bg);
       color: var(--text-muted);
       padding: 0.15rem 0.5rem;
-      border-radius: 9999px;
+      border-radius: var(--radius-badge, 9999px);
       border: 1px solid var(--border);
     }
     .show-dropdown-side {
@@ -1218,13 +1543,13 @@ def create_app(
     }
     .modal-content {
       background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 0.75rem;
+      border: var(--card-border, 1px solid var(--border));
+      border-radius: var(--radius-card, 0.75rem);
       width: 92%;
-      max-width: 580px;
+      max-width: 620px;
       max-height: 88vh;
       overflow-y: auto;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      box-shadow: var(--card-shadow, 0 25px 50px -12px rgba(0, 0, 0, 0.7));
       padding: 1.5rem;
     }
     .modal-header {
@@ -1235,7 +1560,7 @@ def create_app(
       padding-bottom: 0.85rem;
       margin-bottom: 1.25rem;
     }
-    .modal-title { font-size: 1.2rem; font-weight: 700; color: #fff; }
+    .modal-title { font-size: 1.2rem; font-weight: 700; color: var(--text-title, #fff); text-shadow: var(--text-glow, none); }
     .modal-close {
       background: transparent;
       border: none;
@@ -1244,7 +1569,7 @@ def create_app(
       cursor: pointer;
       line-height: 1;
     }
-    .modal-close:hover { color: #fff; }
+    .modal-close:hover { color: var(--text-title, #fff); }
 
     /* Theme Cards Grid */
     .theme-grid {
@@ -1256,7 +1581,7 @@ def create_app(
     .theme-card {
       border: 2px solid var(--border);
       background: rgba(0, 0, 0, 0.2);
-      border-radius: 0.5rem;
+      border-radius: var(--radius-card, 0.5rem);
       padding: 0.65rem;
       cursor: pointer;
       display: flex;
@@ -1285,7 +1610,7 @@ def create_app(
     .theme-title {
       font-size: 0.82rem;
       font-weight: 600;
-      color: #fff;
+      color: var(--text-title, #fff);
     }
     .theme-desc {
       font-size: 0.68rem;
@@ -1452,7 +1777,7 @@ def create_app(
       <!-- Shows toolbar: Expand / Collapse All -->
       <div id="shows-toolbar" style="display: none; justify-content: space-between; align-items: center; margin: 0.75rem 0 1rem 0; padding: 0.5rem 0.85rem; background: rgba(255,255,255,0.02); border-radius: 0.375rem; border: 1px solid var(--border);">
         <span style="font-size: 0.82rem; color: var(--text-muted);">
-          📁 Shows categorized in downloads: <strong id="toolbar-show-count" style="color: #fff;">0</strong>
+          📁 Shows categorized in downloads: <strong id="toolbar-show-count" style="color: var(--text-title, #fff);">0</strong>
         </span>
         <div style="display: flex; gap: 0.4rem;">
           <button class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.2rem 0.6rem;" onclick="toggleAllShowDropdowns(true)">Expand All</button>
@@ -1467,7 +1792,7 @@ def create_app(
 
       <!-- Container for Other / Standalone Files -->
       <div id="downloads-singles-container" style="display: none; margin-top: 1.5rem;">
-        <h4 style="font-size: 0.95rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.5rem;">
+        <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.5rem;">
           <span>📄 Other Downloads (Movies & Standalone Files)</span>
           <span id="singles-count-badge" class="tag tag-dry">0</span>
         </h4>
@@ -1490,7 +1815,7 @@ def create_app(
       <!-- Empty state -->
       <div id="downloads-empty" style="display: none; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
         <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📂</div>
-        <div style="font-size: 1.05rem; font-weight: 500; color: #fff;">No files in Downloads folder</div>
+        <div style="font-size: 1.05rem; font-weight: 500; color: var(--text-title, #fff);">No files in Downloads folder</div>
         <p style="font-size: 0.85rem; margin-top: 0.25rem;">New downloaded media will appear here ready to be categorized and organized.</p>
         <button class="btn btn-outline btn-sm" style="margin-top: 0.75rem;" onclick="addSampleDownloads()">Add Test Samples</button>
       </div>
@@ -1600,10 +1925,34 @@ def create_app(
             <div class="theme-desc">Dark Carbon & Gold</div>
             <div class="theme-check" id="tab-check-monokai-pro">✓</div>
           </div>
+          <div class="theme-card" data-theme-id="terminal-crt" onclick="setTheme('terminal-crt')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #020703 50%, #00ff66 50%); border-color: #00ff66;"></div>
+            <div class="theme-title">Terminal CRT</div>
+            <div class="theme-desc">Retro Monospace & Green CRT</div>
+            <div class="theme-check" id="tab-check-terminal-crt">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="paper-light" onclick="setTheme('paper-light')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #f8fafc 50%, #2563eb 50%); border-color: #cbd5e1;"></div>
+            <div class="theme-title">Paper Light</div>
+            <div class="theme-desc">Clean Studio & Pure Light</div>
+            <div class="theme-check" id="tab-check-paper-light">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="neo-brutalism" onclick="setTheme('neo-brutalism')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #fffdf5 50%, #ffd12d 50%); border: 2px solid #000;"></div>
+            <div class="theme-title">Neo-Brutalism</div>
+            <div class="theme-desc">High Contrast & Pop Borders</div>
+            <div class="theme-check" id="tab-check-neo-brutalism">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="aurora-glass" onclick="setTheme('aurora-glass')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #0c0f1d 50%, #a855f7 50%); border-color: rgba(255, 255, 255, 0.3);"></div>
+            <div class="theme-title">Aurora Glass</div>
+            <div class="theme-desc">Frosted Mesh & Glassmorphism</div>
+            <div class="theme-check" id="tab-check-aurora-glass">✓</div>
+          </div>
         </div>
 
         <div style="border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.5rem;">
-          <h4 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;">⚡ Server Process Control</h4>
+          <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.5rem;">⚡ Server Process Control</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
             Restart the server process to reload your environment and PM2 instance cleanly.
           </p>
@@ -1613,7 +1962,7 @@ def create_app(
         </div>
 
         <div style="border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.25rem;">
-          <h4 style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;">🗃️ Clear Activity & History</h4>
+          <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.5rem;">🗃️ Clear Activity & History</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
             Wipes all past batch execution records and operation logs from the local database.
           </p>
@@ -1755,6 +2104,30 @@ def create_app(
             <div class="theme-desc">Dark Carbon & Gold</div>
             <div class="theme-check" id="check-monokai-pro">✓</div>
           </div>
+          <div class="theme-card" data-theme-id="terminal-crt" onclick="setTheme('terminal-crt')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #020703 50%, #00ff66 50%); border-color: #00ff66;"></div>
+            <div class="theme-title">Terminal CRT</div>
+            <div class="theme-desc">Retro Monospace & Green CRT</div>
+            <div class="theme-check" id="check-terminal-crt">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="paper-light" onclick="setTheme('paper-light')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #f8fafc 50%, #2563eb 50%); border-color: #cbd5e1;"></div>
+            <div class="theme-title">Paper Light</div>
+            <div class="theme-desc">Clean Studio & Pure Light</div>
+            <div class="theme-check" id="check-paper-light">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="neo-brutalism" onclick="setTheme('neo-brutalism')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #fffdf5 50%, #ffd12d 50%); border: 2px solid #000;"></div>
+            <div class="theme-title">Neo-Brutalism</div>
+            <div class="theme-desc">High Contrast & Pop Borders</div>
+            <div class="theme-check" id="check-neo-brutalism">✓</div>
+          </div>
+          <div class="theme-card" data-theme-id="aurora-glass" onclick="setTheme('aurora-glass')">
+            <div class="theme-swatch" style="background: linear-gradient(135deg, #0c0f1d 50%, #a855f7 50%); border-color: rgba(255, 255, 255, 0.3);"></div>
+            <div class="theme-title">Aurora Glass</div>
+            <div class="theme-desc">Frosted Mesh & Glassmorphism</div>
+            <div class="theme-check" id="check-aurora-glass">✓</div>
+          </div>
         </div>
       </div>
 
@@ -1811,6 +2184,10 @@ def create_app(
       { id: 'synthwave', name: 'Synthwave 80s', desc: 'Retro Violet & Pink' },
       { id: 'abyssal-ocean', name: 'Abyssal Ocean', desc: 'Deep Marine & Teal' },
       { id: 'monokai-pro', name: 'Monokai Pro', desc: 'Dark Carbon & Gold' },
+      { id: 'terminal-crt', name: 'Terminal CRT', desc: 'Retro Monospace & Green CRT' },
+      { id: 'paper-light', name: 'Paper Light', desc: 'Clean Studio & Pure Light' },
+      { id: 'neo-brutalism', name: 'Neo-Brutalism', desc: 'High Contrast & Pop Borders' },
+      { id: 'aurora-glass', name: 'Aurora Glass', desc: 'Frosted Mesh & Glassmorphism' },
     ];
 
     function setTheme(themeId) {
@@ -2185,7 +2562,7 @@ def create_app(
                 <div style="display: flex; align-items: center; gap: 0.85rem;">
                   ${subbarPosterHtml}
                   <div>
-                    <div style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 0.2rem;">${showNameEsc}</div>
+                    <div style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.2rem;">${showNameEsc}</div>
                     <div>
                       <span>Target Destination: </span>
                       <code style="color: var(--emerald); font-size: 0.8rem;">${destFolderEsc}</code>
@@ -2259,7 +2636,7 @@ def create_app(
                 <div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(f.relative_path)}</div>
               </td>
               <td>${typeTag}</td>
-              <td><strong style="color: #fff;">${escapeHtml(f.believed_title || f.name)}</strong></td>
+              <td><strong style="color: var(--text-title, #fff);">${escapeHtml(f.believed_title || f.name)}</strong></td>
               <td>${escapeHtml(f.size)}</td>
               <td>
                 <button class="btn btn-outline btn-sm" style="color: var(--rose); border-color: var(--rose);" title="Delete from downloads" onclick="deleteDownloadFile('${escapeJs(delTarget)}')">🗑️</button>
