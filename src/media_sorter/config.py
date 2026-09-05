@@ -53,6 +53,7 @@ class GeneralSettings(BaseModel):
     preserve_permissions: bool = True
     log_level: str = "INFO"
     scan_interval_seconds: int = 0
+    cleanup_empty_dirs: bool = True
 
     @field_validator("confidence_threshold")
     @classmethod
@@ -269,6 +270,10 @@ class Settings(BaseSettings):
                 except ValueError:
                     pass
 
+            cleanup_env = os.getenv("CLEANUP_EMPTY_DIRS")
+            if cleanup_env is not None:
+                self.general.cleanup_empty_dirs = cleanup_env.strip().lower() in ("true", "1", "yes", "on")
+
         if "server" not in self.model_fields_set:
             host_env = os.getenv("SERVER_HOST") or os.getenv("HOST")
             if host_env:
@@ -381,6 +386,10 @@ class Settings(BaseSettings):
             except ValueError:
                 pass
 
+        cleanup = os.getenv("CLEANUP_EMPTY_DIRS") if os.getenv("CLEANUP_EMPTY_DIRS") is not None else values.get("CLEANUP_EMPTY_DIRS")
+        if cleanup is not None:
+            settings.general.cleanup_empty_dirs = str(cleanup).strip().lower() in ("true", "1", "yes", "on")
+
         host = os.getenv("SERVER_HOST") or values.get("SERVER_HOST") or os.getenv("HOST") or values.get("HOST")
         if host:
             settings.server.host = host
@@ -411,6 +420,7 @@ class Settings(BaseSettings):
             f"CONFIDENCE_THRESHOLD={self.general.confidence_threshold}\n"
             f"MIN_FILE_AGE_SECONDS={self.general.min_file_age_seconds}\n"
             f"SCAN_INTERVAL_SECONDS={self.general.scan_interval_seconds}\n"
+            f"CLEANUP_EMPTY_DIRS={'true' if self.general.cleanup_empty_dirs else 'false'}\n"
             f"SERVER_HOST={self.server.host}\n"
             f"SERVER_PORT={self.server.port}\n"
             f"DATABASE_PATH={self.database.path}\n"

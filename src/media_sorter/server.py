@@ -58,6 +58,7 @@ class SettingsUpdateRequest(BaseModel):
     min_file_age_seconds: Optional[int] = None
     scan_interval_seconds: Optional[int] = None
     action: Optional[str] = None
+    cleanup_empty_dirs: Optional[bool] = None
 
 
 def format_bytes(size: int) -> str:
@@ -532,6 +533,23 @@ def create_app(
             else:
                 raise HTTPException(status_code=404, detail="File not found")
         target.unlink()
+        # Clean up empty parent directories up to downloads_path
+        parent = target.parent
+        while parent != downloads_path and parent.is_relative_to(downloads_path):
+            try:
+                entries = [e for e in parent.iterdir() if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini")]
+                if not entries:
+                    for junk in parent.iterdir():
+                        try:
+                            junk.unlink()
+                        except Exception:
+                            pass
+                    parent.rmdir()
+                    parent = parent.parent
+                else:
+                    break
+            except Exception:
+                break
         return {"status": "deleted", "name": name}
 
     @app.get("/api/quarantine")
@@ -587,6 +605,7 @@ def create_app(
             "confidence_threshold": settings.general.confidence_threshold,
             "min_file_age_seconds": settings.general.min_file_age_seconds,
             "scan_interval_seconds": settings.general.scan_interval_seconds,
+            "cleanup_empty_dirs": settings.general.cleanup_empty_dirs,
             "action": settings.general.action.value,
             "server_host": settings.server.host,
             "server_port": settings.server.port,
@@ -621,6 +640,9 @@ def create_app(
         if req.scan_interval_seconds is not None:
             settings.general.scan_interval_seconds = req.scan_interval_seconds
             os.environ["SCAN_INTERVAL_SECONDS"] = str(req.scan_interval_seconds)
+        if req.cleanup_empty_dirs is not None:
+            settings.general.cleanup_empty_dirs = req.cleanup_empty_dirs
+            os.environ["CLEANUP_EMPTY_DIRS"] = "true" if req.cleanup_empty_dirs else "false"
         if req.action:
             try:
                 settings.general.action = ActionType(req.action.lower())
@@ -2172,6 +2194,15 @@ def create_app(
             <label class="form-label">Auto-Sort Interval (seconds, 0 = manual only)</label>
             <input type="number" step="10" min="0" max="86400" class="form-control" id="cfg-interval" placeholder="0 = manual, 60 = every minute, 300 = every 5 mins">
           </div>
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+              <input type="checkbox" id="cfg-cleanup" checked style="width: 1.1rem; height: 1.1rem; accent-color: var(--accent); cursor: pointer;">
+              <span>🧹 Clean up empty folders after moving files</span>
+            </label>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; margin-left: 1.6rem;">
+              Automatically removes empty directories left behind in the downloads folder after files are organized.
+            </p>
+          </div>
           <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 1.5rem;">
             <button type="submit" class="btn btn-emerald">💾 Save to .env</button>
           </div>
@@ -2817,6 +2848,7 @@ def create_app(
         document.getElementById('cfg-threshold').value = s.confidence_threshold;
         document.getElementById('cfg-action').value = s.action;
         document.getElementById('cfg-interval').value = s.scan_interval_seconds || 0;
+        document.getElementById('cfg-cleanup').checked = s.cleanup_empty_dirs !== false;
       } catch (e) {
         console.error(e);
       }
@@ -2832,6 +2864,7 @@ def create_app(
         confidence_threshold: parseFloat(document.getElementById('cfg-threshold').value),
         action: document.getElementById('cfg-action').value,
         scan_interval_seconds: parseInt(document.getElementById('cfg-interval').value, 10) || 0,
+        cleanup_empty_dirs: document.getElementById('cfg-cleanup').checked,
       };
       try {
         const res = await fetch('/api/settings', {

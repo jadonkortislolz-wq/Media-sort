@@ -121,6 +121,7 @@ class BatchExecutionReport:
     skipped_files: int = 0
     quarantined_files: int = 0
     failed_files: int = 0
+    cleaned_dirs: int = 0
     operations: List[PlannedOperation] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
@@ -278,6 +279,15 @@ class MediaExecutor:
                 err_msg = f"Failed {item.action} on {item.src} -> {item.dst}: {e}"
                 logger.error(err_msg, exc_info=True)
                 report.errors.append(err_msg)
+
+        # Clean up empty directories in source directories after live moves
+        if not is_dry_run and getattr(self.settings.general, "cleanup_empty_dirs", True):
+            moved_srcs = [
+                item.src
+                for item in validated_plan
+                if item.action == ActionType.MOVE and not item.quarantine
+            ]
+            report.cleaned_dirs = self.clean_empty_directories(moved_srcs)
 
         # Update batch record completion status
         batch_record.completed_at = datetime.now(timezone.utc)
@@ -582,3 +592,51 @@ class MediaExecutor:
             self.session.commit()
 
         return recovered_count
+
+    def clean_empty_directories(self, moved_src_paths: List[Path]) -> int:
+        """Remove empty parent directories in source folders after moving files.
+        
+        Ascends from moved file parent folders up to, but never removing, the source root directories.
+        """
+        source_roots = {p.resolve() for p in self.settings.get_source_paths()}
+        # Also include any parent roots if configured
+        candidate_dirs: Set[Path] = set()
+        for src in moved_src_paths:
+            try:
+                parent = src.resolve().parent
+                while parent not in source_roots and any(parent.is_relative_to(root) for root in source_roots):
+                    candidate_dirs.add(parent)
+                    parent = parent.parent
+            except Exception:
+                continue
+
+        # Sort candidate directories deepest first (longest path / most parts first)
+        sorted_dirs = sorted(candidate_dirs, key=lambda d: len(d.parts), reverse=True)
+        removed_count = 0
+
+        for d in sorted_dirs:
+            if not d.exists() or not d.is_dir():
+                continue
+            # Ensure we never delete a configured source root
+            if d in source_roots:
+                continue
+            try:
+                # Check if directory contains any remaining files or subdirs (ignoring OS junk)
+                entries = [
+                    e for e in d.iterdir()
+                    if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini")
+                ]
+                if not entries:
+                    # Clean up junk files before rmdir
+                    for junk in d.iterdir():
+                        try:
+                            junk.unlink()
+                        except Exception:
+                            pass
+                    d.rmdir()
+                    removed_count += 1
+                    logger.info("Cleaned up empty source directory", directory=str(d))
+            except (OSError, PermissionError) as e:
+                logger.debug("Could not remove directory (not empty or permissions issue)", directory=str(d), error=str(e))
+
+        return removed_count
