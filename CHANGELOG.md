@@ -151,3 +151,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RGB visual effect was missing, now correctly applied.
 - Version numbers were out‑of‑sync between `pyproject.toml` and package `__init__`.
 
+
+## [1.0.10] - 2026-09-06
+
+### Added
+- Updated README with section on using the Antigravity bot via Direct Messages.
+- Added no‑cache HTTP headers to ensure version badge updates reliably.
+
+### Changed
+- Bumped project version to 1.0.10 in `pyproject.toml` and package `__init__`.
+
+### Fixed
+- Version numbers now stay in sync across metadata files.

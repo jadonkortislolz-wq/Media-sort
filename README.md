@@ -122,6 +122,9 @@ Start the responsive, modern Web Management Dashboard:
 media-sorter server
 ```
 
+**Using the Antigravity Bot in Direct Messages**
+You can also interact with the Media Sorter assistant bot via direct messages (DMs). Send commands such as `scan`, `organize`, `rollback`, or `config show` directly to the bot, and it will reply with results, status updates, or interactive prompts. This provides a convenient way to manage your media library without opening the web UI.
+
 Open `http://localhost:8085` (or `http://<your-host-ip>:8085`) in your browser. The web UI includes:
 - **Dashboard & Activity**: Live metrics, mode badge, 1-click Dry-Run Preview & Live Sort buttons, 1-click Server Restart button, and past batch history.
 - **Folder Explorer**: Live view of files in `downloads/`, `movies/`, and `shows/` with file sizes and timestamps.
