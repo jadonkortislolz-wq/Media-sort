@@ -3071,7 +3071,7 @@ def create_app(
     <div class="top-bar-area">
       <div class="header">
         <div class="brand">
-          <div class="brand-icon">📂</div>
+          <div class="brand-icon">🎞️</div>
           <div>
             <div class="brand-title" style="display: flex; align-items: center; gap: 0.5rem;">Media Sorter <span style="font-size: 0.72rem; font-weight: 600; vertical-align: middle; background: rgba(56, 189, 248, 0.18); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.12rem 0.5rem; border-radius: 9999px;">__VERSION_PLACEHOLDER__</span></div>
             <div class="brand-subtitle">Automated Downloads Organizer (Movies & Shows)</div>
