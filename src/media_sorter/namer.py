@@ -68,6 +68,13 @@ def sanitize_filename_component(name: str, max_length: int = 240) -> str:
     return clean if clean else "unnamed"
 
 
+DEFAULT_TEMPLATES = {
+    "tv": "{title}/Season {season:02d}/{show_name}_{season_episode}.{ext}",
+    "movie": "{title} ({year})/{movie_name}.{ext}",
+    "anime": "{title}/Season {season:02d}/{show_name}_{season_episode} [{group}].{ext}",
+}
+
+
 class MediaNamer:
     """Renders organized destination paths from templates and classification results."""
 
@@ -100,12 +107,20 @@ class MediaNamer:
 
         # Retrieve template
         template = getattr(self.settings.templates, category, None)
-        if not template:
-            # Fallback default template
-            template = "{filename}.{ext}"
-
         context = self._build_context(cls_result)
-        formatted_rel = self._render_template(template, context)
+
+        if category == "tv" and (not template or template == DEFAULT_TEMPLATES.get("tv")):
+            formatted_rel = self._format_tv_path(cls_result, context)
+        elif category == "movie" and (not template or template == DEFAULT_TEMPLATES.get("movie")):
+            formatted_rel = self._format_movie_path(cls_result, context)
+        elif category == "anime" and (not template or template == DEFAULT_TEMPLATES.get("anime")):
+            formatted_rel = self._format_anime_path(cls_result, context)
+        elif category == "podcast" and (not template or template == "{show}/{year}/{show} - {date} - {title}.{ext}"):
+            formatted_rel = self._format_podcast_path(cls_result, context)
+        else:
+            if not template:
+                template = "{filename}.{ext}"
+            formatted_rel = self._render_template(template, context)
 
         # If file renaming is disabled, preserve original source filename
         if not getattr(self.settings.general, "rename_files", True) and src_path.name != "unknown":
@@ -119,6 +134,70 @@ class MediaNamer:
         parts = Path(formatted_rel).parts
         sanitized_parts = [sanitize_filename_component(p) for p in parts]
         return (base_dir / Path(*sanitized_parts)).resolve()
+
+    def _format_tv_path(self, cls_result: ClassificationResult, context: Dict[str, Any]) -> str:
+        show_name = context["show_name"]
+        ext = context["ext"]
+        tokens = cls_result.tokens
+
+        # Daily / dated broadcast TV formatting
+        date_val = context.get("date_val")
+        if (tokens and tokens.is_daily) or (date_val and (not tokens or not tokens.season or tokens.season > 1000)):
+            year = context.get("year")
+            if not year or year == "Unknown":
+                year = date_val.split("-")[0] if date_val else "Unknown"
+            return f"{show_name}/Season {year}/{show_name} - {date_val}.{ext}"
+
+        # Standard TV formatting (supporting Season 00, multi-ep, and season pack)
+        season_num = context["season"]
+        season_folder = f"Season {season_num:02d}"
+        season_episode = context["season_episode"]
+        return f"{show_name}/{season_folder}/{show_name} - {season_episode}.{ext}"
+
+    def _format_movie_path(self, cls_result: ClassificationResult, context: Dict[str, Any]) -> str:
+        title = context["title"]
+        year = context["year"]
+        ext = context["ext"]
+        has_year = year and year != "Unknown"
+        folder_name = f"{title} ({year})" if has_year else title
+        base_name = f"{title} ({year})" if has_year else title
+
+        edition_tag = context.get("edition_tag", "")
+        part_tag = context.get("part_tag", "")
+        extra_tag = context.get("extra_tag", "")
+        return f"{folder_name}/{base_name}{edition_tag}{part_tag}{extra_tag}.{ext}"
+
+    def _format_anime_path(self, cls_result: ClassificationResult, context: Dict[str, Any]) -> str:
+        title = context["title"]
+        ext = context["ext"]
+        tokens = cls_result.tokens
+        group_tag = context.get("group_tag", "")
+
+        # Multi-episode anime
+        if tokens and tokens.multi_episodes and len(tokens.multi_episodes) >= 2:
+            first_ep = tokens.multi_episodes[0]
+            last_ep = tokens.multi_episodes[-1]
+            ep_str = f"{first_ep:02d}-{last_ep:02d}"
+            return f"{title}/{title} - {ep_str}{group_tag}.{ext}"
+
+        # Single episode anime
+        if tokens and tokens.episode is not None:
+            ep = tokens.episode
+            ep_str = f"{ep:02d}" if ep < 10 else str(ep)
+            return f"{title}/{title} - {ep_str}{group_tag}.{ext}"
+
+        # Anime movie or special without episode number
+        return f"{title}/{title}{group_tag}.{ext}"
+
+    def _format_podcast_path(self, cls_result: ClassificationResult, context: Dict[str, Any]) -> str:
+        show = context.get("show") or context.get("artist") or "Unknown Show"
+        year = context.get("year")
+        date = context.get("date")
+        title = context.get("title")
+        ext = context.get("ext")
+        if title and title != show and title != "Unknown":
+            return f"{show}/{year}/{show} - {date} - {title}.{ext}"
+        return f"{show}/{year}/{show} - {date}.{ext}"
 
     def _format_sidecar_path(
         self,
@@ -134,12 +213,21 @@ class MediaNamer:
             primary_stem = primary_dst_path.stem
 
             if cls_result.category == "subtitle":
-                # Detect language code in subtitle (e.g. movie.en.srt, movie.forced.srt)
+                # Detect language code or compound tag in subtitle (e.g. movie.en.srt, movie.forced.srt)
                 src_stem = src_path.stem
-                lang_suffix = ""
-                parts = src_stem.split(".")
-                if len(parts) > 1 and len(parts[-1]) in (2, 3, 6):  # en, eng, forced
-                    lang_suffix = f".{parts[-1]}"
+                m = re.search(
+                    r"\.((?:[a-zA-Z]{2,3}\.)?(?:forced|sdh|cc)|[a-zA-Z]{2,3}(?:-[a-zA-Z]{2,4})?)$",
+                    src_stem,
+                    re.IGNORECASE,
+                )
+                if m:
+                    lang_suffix = f".{m.group(1)}"
+                else:
+                    parts = src_stem.split(".")
+                    if len(parts) > 1 and len(parts[-1]) in (2, 3, 6):
+                        lang_suffix = f".{parts[-1]}"
+                    else:
+                        lang_suffix = ""
                 new_filename = f"{primary_stem}{lang_suffix}.{ext}"
                 return parent_dir / sanitize_filename_component(new_filename)
 
@@ -161,10 +249,64 @@ class MediaNamer:
         meta = res.metadata
         src_path = meta.path if meta else Path("file")
 
-        season_num = (tokens.season if tokens else 1) or 1
-        episode_num = (tokens.episode if tokens else 1) or 1
-        season_ep_str = f"S{season_num:02d}E{episode_num:02d}"
+        # Fix Season 00 / Episode 00 falsy bug
+        season_num = tokens.season if (tokens and tokens.season is not None) else 1
+        episode_num = tokens.episode if (tokens and tokens.episode is not None) else 1
+
+        # Format season_episode string with multi-episode and season pack support
+        if tokens and tokens.multi_episodes and len(tokens.multi_episodes) >= 2:
+            season_ep_str = f"S{season_num:02d}E{tokens.multi_episodes[0]:02d}-E{tokens.multi_episodes[-1]:02d}"
+        elif tokens and (tokens.is_season_pack or (tokens.season is not None and tokens.episode is None and not getattr(tokens, "multi_episodes", None))):
+            season_ep_str = f"Season {season_num:02d}"
+        else:
+            season_ep_str = f"S{season_num:02d}E{episode_num:02d}"
+
         main_title = (tokens.title if tokens else None) or src_path.stem
+
+        # Clean release group: omit when unknown, NEVER emit 'UnknownGroup'
+        group_val = tokens.group if (tokens and tokens.group and tokens.group != "UnknownGroup") else ""
+        group_tag = f" [{group_val}]" if group_val else ""
+
+        # Extract movie edition, part, and extra tags
+        edition_val = getattr(tokens, "edition", None) if tokens else None
+        if not edition_val:
+            em = re.search(r"\b(extended|directors?\.cut|remastered|criterion(?:\.collection)?|final\.cut)\b", src_path.stem, re.I)
+            if em:
+                raw_ed = em.group(1).lower().replace(".", " ")
+                if "director" in raw_ed:
+                    edition_val = "Director's Cut"
+                elif "criterion" in raw_ed:
+                    edition_val = "Criterion"
+                elif "final" in raw_ed:
+                    edition_val = "Final Cut"
+                elif "remaster" in raw_ed:
+                    edition_val = "Remastered"
+                elif "extend" in raw_ed:
+                    edition_val = "Extended"
+
+        edition_tag = f" [{edition_val}]" if edition_val else ""
+
+        part_val = getattr(tokens, "part", None) if tokens else None
+        part_label = getattr(tokens, "part_label", None) if tokens else None
+        if part_val is None:
+            pm = re.search(r"\b(?:cd|part|pt)[\.\s_-]*(\d+)\b", src_path.stem, re.I)
+            if pm:
+                part_val = int(pm.group(1))
+                part_label = f"Pt.{part_val}"
+        elif not part_label:
+            part_label = f"Pt.{part_val}"
+
+        part_tag = f" [{part_label}]" if part_label else ""
+
+        extra_m = re.search(r"-(behindthescenes|deleted|trailer|featurette)\b", src_path.stem, re.I)
+        extra_tag = f"-{extra_m.group(1).lower()}" if extra_m else ""
+
+        # Date resolution for daily TV shows and podcasts
+        date_val = getattr(tokens, "air_date", None) or (tokens.date_stamp if tokens and not tokens.is_photo_or_home_video else None)
+        if not date_val:
+            dm = re.search(r"\b((?:19|20)\d{2})[-._](0[1-9]|1[0-2])[-._](0[1-9]|[12]\d|3[01])\b", src_path.stem)
+            if dm:
+                date_val = f"{dm.group(1)}-{dm.group(2)}-{dm.group(3)}"
 
         ctx: Dict[str, Any] = {
             "ext": src_path.suffix.lstrip("."),
@@ -184,13 +326,21 @@ class MediaNamer:
             "album": (tokens.album if tokens else None) or "Unknown Album",
             "track": (tokens.track if tokens else 1) or 1,
             "disc": (tokens.disc if tokens else 1) or 1,
-            "group": (tokens.group if tokens else "UnknownGroup") or "UnknownGroup",
+            "group": group_val,
+            "group_tag": group_tag,
+            "edition": edition_val,
+            "edition_tag": edition_tag,
+            "part": part_val,
+            "part_label": part_label,
+            "part_tag": part_tag,
+            "extra_tag": extra_tag,
+            "date_val": date_val,
             "resolution": (tokens.resolution if tokens and tokens.resolution else (meta.resolution_label if meta else "")),
             "codec": (tokens.video_codec or (meta.codec_video if meta else "h264")),
             "author": (tokens.artist if tokens else None) or "Unknown Author",
             "chapter": (tokens.title if tokens else None) or f"Chapter {tokens.track if tokens else 1}",
             "show": (tokens.artist if tokens else None) or "Unknown Show",
-            "date": (tokens.date_stamp if tokens else "2026-01-01") or "2026-01-01",
+            "date": date_val or ((tokens.date_stamp if tokens else "2026-01-01") or "2026-01-01"),
             "month": 1,
             "day": 1,
             "time": "000000",
@@ -217,11 +367,13 @@ class MediaNamer:
                 ctx["album"] = p.album
 
         # Parse date stamp fields if present
-        if tokens and tokens.date_stamp:
-            date_parts = tokens.date_stamp.split("-")
+        date_source = (tokens and tokens.date_stamp) or (ctx.get("date") if res.category in ("home_video", "photo", "podcast") else None)
+        if date_source and date_source != "Unknown":
+            date_parts = str(date_source).split("-")
             if len(date_parts) == 3:
                 try:
-                    ctx["year"] = int(date_parts[0])
+                    if ctx["year"] == "Unknown":
+                        ctx["year"] = int(date_parts[0])
                     ctx["month"] = int(date_parts[1])
                     ctx["day"] = int(date_parts[2])
                 except ValueError:

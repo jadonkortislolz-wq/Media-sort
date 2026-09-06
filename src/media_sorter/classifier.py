@@ -17,9 +17,24 @@ import structlog
 from .analyzer import MediaMetadata
 from .providers import MetadataProvider, ProviderResult
 from .scanner import ScannedFile
-from .tokenizer import TokenizedFilename
+from .tokenizer import TokenizedFilename, KNOWN_ANIME_GROUPS, KNOWN_ANIME_TITLES
 
 logger = structlog.get_logger(__name__)
+
+RE_BROADCAST_DATE = re.compile(r"\b((?:19|20)\d{2})[-._](0[1-9]|1[0-2])[-._](0[1-9]|[12]\d|3[01])\b")
+RE_ANIME_GROUPS = re.compile(
+    r"\[(subsplease|horriblesubs|erai-raws|taigasubs|judas|commie|dame-desu|asw|chunchunmaru|ember)\]",
+    re.IGNORECASE,
+)
+RE_NON_ANIME_GROUPS = re.compile(r"\[(yts(?:\.mx)?|rartv|tgx|eztv)\]", re.IGNORECASE)
+RE_CRC32 = re.compile(r"\[[0-9A-Fa-f]{8}\]")
+RE_OVA = re.compile(r"\b(ova|oad)\b", re.IGNORECASE)
+RE_COUR_TAG = re.compile(r"\b(?:\d+(?:st|nd|rd|th)\s+season|cour\s*\d+|s\d+\s*-)\b", re.IGNORECASE)
+RE_STANDALONE_EPISODE = re.compile(r"\b(?:episodes?|ep)[\.\s_-]*(\d{1,4})\b", re.IGNORECASE)
+RE_STD_TV = re.compile(
+    r"(?<![0-9a-z])s\d{1,2}[\.\s_-]*(?:e|ep|ed|op)\d{1,3}|(?<![0-9a-z])\d{1,2}x(?!(?:264|265))\d{1,3}|\bseason[\.\s_-]*(?:\d+|[ivx]+)[\.\s_-]*(?:episode|ep)[\.\s_-]*(?:\d+|[ivx]+)\b|\bs\d{1,2}\.complete\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -197,9 +212,19 @@ class MediaClassifier:
         if "podcast" in path_str or "podcasts" in path_str:
             pod_score += 0.4
             pod_signals.append("folder_name_podcast")
-        if tokens.date_stamp and not tokens.is_photo_or_home_video:
-            pod_score += 0.35
+        if (tokens.date_stamp or tokens.air_date) and not tokens.is_photo_or_home_video:
+            pod_score += 0.45
             pod_signals.append("dated_filename")
+            if tokens.track is None and not tokens.is_music:
+                pod_score += 0.30
+                pod_signals.append("non_music_audio_with_date")
+        elif RE_BROADCAST_DATE.search(scanned.path.stem):
+            pod_score += 0.45
+            pod_signals.append("dated_filename")
+            if tokens.track is None and not tokens.is_music:
+                pod_score += 0.30
+                pod_signals.append("non_music_audio_with_date")
+
         if any(k in tags for k in ("podcast", "itunes_category", "show")):
             pod_score += 0.35
             pod_signals.append("podcast_tags")
@@ -253,7 +278,16 @@ class MediaClassifier:
         stem_lower = scanned.path.stem.lower()
 
         # 1. Home Video Check:
-        # If camera date stamp or recorded from mobile/camcorder without scene tags, and short/medium duration
+        upper_base = scanned.path.stem.split(".")[0].upper()
+        if upper_base in ("CON", "PRN", "AUX", "NUL"):
+            return ClassificationResult(
+                category="home_video",
+                confidence=0.88,
+                signals={"reserved_name": upper_base},
+                tokens=tokens,
+                metadata=metadata,
+            )
+
         if (tokens.is_photo_or_home_video or stem_lower.startswith(("vid_", "mov_", "mvi_"))) and (
             dur > 0 and dur < 900 or "home" in path_str or "family" in path_str
         ):
@@ -267,7 +301,6 @@ class MediaClassifier:
                 )
 
         # 2. Documentary check:
-        # Keyword in path or filename
         if "documentary" in path_str or "docu" in stem_lower or "bbc." in stem_lower or "national.geographic" in stem_lower:
             doc_score = 0.85
             if tokens.year:
@@ -281,37 +314,66 @@ class MediaClassifier:
             )
 
         # 3. Anime Check:
-        # High confidence anime indicators
-        if tokens.is_anime or "anime" in path_str or "[horriblesubs]" in stem_lower or "[subsplease]" in stem_lower or "[judas]" in stem_lower or "[erai-raws]" in stem_lower:
-            anime_score = 0.70
-            a_signals = []
+        is_standard_tv = bool(RE_STD_TV.search(scanned.path.stem))
+        is_non_anime_movie = bool(RE_NON_ANIME_GROUPS.search(scanned.path.stem))
+        has_broadcast_date = bool(tokens.is_daily or tokens.air_date or RE_BROADCAST_DATE.search(scanned.path.stem))
+
+        is_anime_candidate = False
+        a_signals = []
+        if not is_standard_tv and not is_non_anime_movie and not has_broadcast_date:
             if tokens.is_anime:
-                anime_score += 0.2
+                is_anime_candidate = True
                 a_signals.append("fansub_syntax")
-            if tokens.group:
-                anime_score += 0.08
-                a_signals.append("release_group")
+            if RE_ANIME_GROUPS.search(scanned.path.stem) or (tokens.group and tokens.group.lower() in KNOWN_ANIME_GROUPS):
+                is_anime_candidate = True
+                a_signals.append("known_anime_group")
+            if RE_CRC32.search(scanned.path.stem):
+                is_anime_candidate = True
+                a_signals.append("crc32_checksum")
+            if RE_OVA.search(scanned.path.stem):
+                is_anime_candidate = True
+                a_signals.append("ova_tag")
+            if RE_COUR_TAG.search(scanned.path.stem):
+                is_anime_candidate = True
+                a_signals.append("cour_tag")
+            if RE_STANDALONE_EPISODE.search(scanned.path.stem) and not bool(re.search(r"\bseason\b", stem_lower)):
+                is_anime_candidate = True
+                a_signals.append("standalone_episode_keyword")
             if "anime" in path_str:
-                anime_score += 0.1
+                is_anime_candidate = True
                 a_signals.append("anime_folder")
 
-            conf = min(anime_score, 0.98)
+        if is_anime_candidate:
+            anime_score = 0.85
+            if "known_anime_group" in a_signals:
+                anime_score += 0.10
+            if "crc32_checksum" in a_signals:
+                anime_score += 0.04
+            conf = min(anime_score, 0.99)
             return ClassificationResult(
                 category="anime",
                 confidence=conf,
                 signals={"anime_signals": a_signals},
                 tokens=tokens,
                 metadata=metadata,
-                needs_quarantine=conf < self.confidence_threshold,
-                quarantine_reason="Low confidence anime release" if conf < self.confidence_threshold else None,
             )
 
         is_tv_folder = bool(re.search(r"(?i)[/\\](?:tv[/\\]|tv[-_\s]shows?|tv[-_\s]series|season[-_\s]*\d+)", path_str))
         is_movie_folder = bool(re.search(r"(?i)[/\\](?:movies?[/\\]|films?[/\\])", path_str))
 
-        # 4. TV Show (Episodic) Check:
+        # 4. TV Show Check (Episodic and Daily Broadcasts):
+        is_daily_tv = has_broadcast_date and (
+            tokens.resolution
+            or tokens.source
+            or "daily" in stem_lower
+            or "tonight" in stem_lower
+            or "late" in stem_lower
+            or "news" in stem_lower
+            or dur >= 1200
+        )
+
         is_tv = False
-        if tokens.is_episodic:
+        if tokens.is_episodic or is_standard_tv or is_daily_tv:
             is_tv = True
         elif is_tv_folder and not tokens.year:
             is_tv = True
@@ -321,9 +383,12 @@ class MediaClassifier:
         if is_tv:
             tv_score = 0.40
             tv_signals = []
-            if tokens.is_episodic:
+            if tokens.is_episodic or is_standard_tv:
                 tv_score += 0.45
                 tv_signals.append("season_episode_pattern")
+            if is_daily_tv:
+                tv_score += 0.45
+                tv_signals.append("broadcast_date_pattern")
             if tokens.episode is not None:
                 tv_score += 0.10
             if is_tv_folder:
@@ -363,7 +428,7 @@ class MediaClassifier:
         # 5. Movie Check:
         movie_score = 0.40
         m_signals = []
-        if tokens.year:
+        if tokens.year and not has_broadcast_date:
             movie_score += 0.35
             m_signals.append("year_in_title")
         if tokens.resolution or tokens.source or tokens.video_codec:
@@ -373,8 +438,13 @@ class MediaClassifier:
             movie_score += 0.15
             m_signals.append("movie_folder_hint")
         if dur >= 3600:  # > 1 hour
-            movie_score += 0.15
+            movie_score += 0.20
             m_signals.append("feature_film_duration")
+
+        # Check for movie extras tag
+        if re.search(r"-(behindthescenes|deleted|trailer|featurette)\b", stem_lower):
+            movie_score += 0.25
+            m_signals.append("movie_extra_tag")
 
         # Provider boost
         prov_res = None

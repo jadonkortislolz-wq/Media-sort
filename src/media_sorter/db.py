@@ -42,7 +42,7 @@ def get_engine(db_path: Path | str = DEFAULT_DB_PATH, wal_mode: bool = True) -> 
         if wal_mode:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=10000")
+            cursor.execute("PRAGMA busy_timeout=30000")
         cursor.close()
 
     return engine
@@ -56,9 +56,16 @@ def init_db(engine: Optional[Engine] = None, db_path: Path | str = DEFAULT_DB_PA
     return engine
 
 
+_ENGINE_SESSION_FACTORIES: dict[Engine, scoped_session[Session]] = {}
+
+
 def get_session_factory(engine: Engine) -> scoped_session[Session]:
-    """Create a scoped session factory bound to the given engine."""
-    return scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+    """Retrieve or create a cached scoped session factory bound to the given engine."""
+    if engine not in _ENGINE_SESSION_FACTORIES:
+        _ENGINE_SESSION_FACTORIES[engine] = scoped_session(
+            sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        )
+    return _ENGINE_SESSION_FACTORIES[engine]
 
 
 @contextmanager
@@ -74,3 +81,4 @@ def get_db_session(engine: Engine) -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+        session_factory.remove()

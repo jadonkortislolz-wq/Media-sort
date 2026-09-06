@@ -55,3 +55,21 @@ def test_database_initialization(tmp_path: Path):
         assert queried is not None
         assert queried.dry_run is True
         assert queried.status == "COMPLETED"
+
+
+def test_session_factory_caching_and_cleanup(tmp_path: Path):
+    from media_sorter.db import get_session_factory, _ENGINE_SESSION_FACTORIES
+    db_file = tmp_path / "test_cache.db"
+    engine = init_db(db_path=db_file)
+
+    factory1 = get_session_factory(engine)
+    factory2 = get_session_factory(engine)
+    assert factory1 is factory2
+    assert engine in _ENGINE_SESSION_FACTORIES
+
+    with get_db_session(engine) as session:
+        batch = BatchRecord(id="cached-1", dry_run=True, status="COMPLETED")
+        session.add(batch)
+
+    # Scoped session registry was cleared via remove()
+    assert factory1.registry.has() is False

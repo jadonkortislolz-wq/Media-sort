@@ -135,3 +135,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release with atomic file sorting, dry-run simulation, and web dashboard.
+## [1.0.8] - 2026-09-06
+
+### Added
+- Added missing custom themes: neon-forest, retro-retro, golden-sand, deep-space, candy-cotton.
+- Implemented RGB Chroma mode UI with toggle and speed slider, keyframe animations, and persistence via localStorage.
+- Added unit tests for theme availability and RGB feature.

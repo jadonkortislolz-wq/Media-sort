@@ -556,7 +556,130 @@ def test_sort_show_endpoint_and_rollback(web_env):
     assert err_res.status_code == 404
 
 
+def test_dashboard_themes_and_rgb_feature(web_env):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Verify all 30 themes are present in CSS
+    expected_themes = [
+        "cyber-dark", "oled-neon", "nord-frost", "dracula", "emerald-matrix",
+        "solar-sunset", "tokyo-night", "synthwave", "abyssal-ocean", "monokai-pro",
+        "terminal-crt", "paper-light", "neo-brutalism", "aurora-glass", "catppuccin-mocha",
+        "rose-pine", "gruvbox-dark", "solarized-dark", "nightowl", "vesper",
+        "bios-amber", "vapor-glitch", "mossy-stone", "crimson-eclipse", "blueprint-draft",
+        "neon-forest", "retro-retro", "golden-sand", "deep-space", "candy-cotton",
+    ]
+    for theme_id in expected_themes:
+        assert f'[data-theme="{theme_id}"]' in html, f"Missing CSS for theme {theme_id}"
+        assert f'value="{theme_id}"' in html, f"Missing select option for theme {theme_id}"
+        assert f"id: '{theme_id}'" in html, f"Missing JS THEMES entry for theme {theme_id}"
+
+    # Verify RGB feature controls and styles
+    assert "rgb-mode" in html
+    assert "tab-rgb-mode-toggle" in html
+    assert "tab-rgb-speed-slider" in html
+    assert "toggleRGBMode" in html
+    assert "updateRGBSpeed" in html
+    assert "--rgb-duration" in html
 
 
+def test_poster_local_storage_boundary_and_security(web_env, tmp_path: Path):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+
+    # 1. Valid poster inside authorized storage root returns 200
+    valid_poster = shows / "poster.jpg"
+    valid_poster.write_bytes(b"\xff\xd8\xff\xe0" + b"image_data")
+    res_valid = client.get(f"/api/poster/local?path={valid_poster}")
+    assert res_valid.status_code == 200
+
+    # 2. Non-existent file inside storage root returns 404
+    missing_poster = shows / "missing.jpg"
+    res_missing = client.get(f"/api/poster/local?path={missing_poster}")
+    assert res_missing.status_code == 404
+
+    # 3. Path outside storage roots (traversal attempt) returns 403 Forbidden
+    outside_dir = tmp_path / "outside_secret"
+    outside_dir.mkdir()
+    secret_file = outside_dir / "secret.png"
+    secret_file.write_bytes(b"secret payload")
+    res_outside = client.get(f"/api/poster/local?path={secret_file}")
+    assert res_outside.status_code == 403
+
+    # 4. Non-image extension returns 400 Bad Request
+    text_file = downloads / "notes.txt"
+    text_file.write_text("not an image")
+    res_text = client.get(f"/api/poster/local?path={text_file}")
+    assert res_text.status_code == 400
 
 
+def test_manual_sort_sanitization_and_reserved_names(web_env):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+
+    # 1. Path traversal in title is sanitized and contained
+    target_movie = downloads / "sample_movie.mkv"
+    target_movie.write_text("movie data")
+
+    res_traversal = client.post("/api/files/manual-sort", json={
+        "relative_path": "sample_movie.mkv",
+        "category": "movie",
+        "title": "../../../traversal_title",
+        "year": 2022,
+    })
+    assert res_traversal.status_code == 200
+    expected_dir = movies / "traversal_title (2022)"
+    assert expected_dir.exists()
+    assert (expected_dir / "traversal_title (2022).mkv").exists()
+
+    # 2. Windows reserved name in title (e.g. CON, AUX) is prefixed with underscore
+    target_tv = downloads / "con_show.mkv"
+    target_tv.write_text("tv data")
+
+    res_con = client.post("/api/files/manual-sort", json={
+        "relative_path": "con_show.mkv",
+        "category": "tv",
+        "title": "CON",
+        "season": 1,
+        "episode": 2,
+    })
+    assert res_con.status_code == 200
+    expected_tv_dir = shows / "_CON" / "Season 01"
+    assert expected_tv_dir.exists()
+    assert (expected_tv_dir / "_CON - S01E02.mkv").exists()
+
+    # 3. Pure forbidden characters title is rejected with 400
+    target_invalid = downloads / "invalid_file.mkv"
+    target_invalid.write_text("data")
+    res_bad = client.post("/api/files/manual-sort", json={
+        "relative_path": "invalid_file.mkv",
+        "category": "movie",
+        "title": ":::***???",
+    })
+    assert res_bad.status_code == 400
+
+
+def test_process_locking_concurrency_409(web_env):
+    client, settings, downloads, movies, shows, test_env_file = web_env
+    from media_sorter.executor import acquire_process_lock
+
+    lock_file = settings.get_database_path().with_suffix(".lock")
+    with acquire_process_lock(lock_file):
+        # When lock is held, endpoints should return 409 Conflict
+        res_run = client.post("/api/run", json={"dry_run": True})
+        assert res_run.status_code == 409
+
+        res_rb = client.post("/api/rollback", json={"batch_id": "dummy"})
+        assert res_rb.status_code == 409
+
+        res_rba = client.post("/api/rollback/all")
+        assert res_rba.status_code == 409
+
+        dummy_file = downloads / "dummy.mkv"
+        dummy_file.write_text("test")
+        res_ms = client.post("/api/files/manual-sort", json={
+            "relative_path": "dummy.mkv",
+            "category": "movie",
+            "title": "Locked Movie",
+        })
+        assert res_ms.status_code == 409

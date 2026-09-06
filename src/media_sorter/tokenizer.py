@@ -13,33 +13,137 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Regex patterns for Video & Episodic Media
+ROMAN_NUMERALS: Dict[str, int] = {
+    "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5,
+    "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10,
+    "xi": 11, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15,
+    "xvi": 16, "xvii": 17, "xviii": 18, "xix": 19, "xx": 20,
+}
+
+RE_ROMAN_SEASON_EPISODE = re.compile(
+    r"""(?ix)
+    \bseason[\.\s_-]*(?P<season_roman>[ivx]+)[\.\s_-]*(?:episode|ep)[\.\s_-]*(?P<episode_roman>[ivx]+)\b
+    """
+)
+
 RE_SEASON_EPISODE = re.compile(
     r"""(?ix)
     (?:
+        # Standard S01E02, S01E01-E02, S01E01E02, S01E01-02
         (?<![0-9a-z])s(?P<season>\d{1,2})[\.\s_-]*(?:e|ep|ed|op)(?P<episode>\d{1,3})
-        (?:[\.\s_-]*(?:e|x|-)(?P<episode_end>\d{1,3}))?(?![0-9]) # multi-episode like S01E01-E02
+        (?:[\.\s_-]*(?:e|x|-|ep)(?P<episode_end>\d{1,3}))?(?![0-9])
     |
-        (?<![0-9a-z])(?P<season_x>\d{1,2})x(?!(?:264|265|vid|hevc|avc))(?P<episode_x>\d{1,3})(?![0-9])
+        # Scene 1x02, 2x01-02, 2x01-x02
+        (?<![0-9a-z])(?P<season_x>\d{1,2})x(?!(?:264|265|vid|hevc|avc))(?P<episode_x>\d{1,3})
+        (?:[\.\s_-]*(?:x|-)(?P<episode_x_end>\d{1,3}))?(?![0-9])
     |
-        \bseason[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*(?:episode|ep)[\.\s_-]*(?P<episode_word>\d{1,3})\b
+        # Word season / episode: Season 1 Episode 2
+        \bseason[\.\s_-]*(?P<season_word>\d{1,2})[\.\s_-]*(?:episode|ep)[\.\s_-]*(?P<episode_word>\d{1,3})
+        (?:[\.\s_-]*(?:-|to)[\.\s_-]*(?:episode|ep)?[\.\s_-]*(?P<episode_word_end>\d{1,3}))?\b
     |
+        # Standalone episode: Episode 207, Ep 01
         \b(?:episodes?|ep)[\.\s_-]*(?P<episode_standalone>\d{1,4})(?![0-9])\b
     )
     """
 )
 
-# Anime fansub format: [ReleaseGroup] Show Title - 01 (or 01v2) [1080p] [CRC32].mkv
+RE_SEASON_PACK = re.compile(
+    r"""(?ix)
+    (?<![0-9a-z])
+    (?:
+        s(?P<season_pack>\d{1,2})
+        |
+        season[\.\s_-]*(?P<season_pack_word>\d{1,2})
+    )
+    [\.\s_-]*(?:complete|full|season\.pack)\b
+    """
+)
+
+# Anime fansub format: [ReleaseGroup] Show Title - 01 (or 01-02, or 01v2) [1080p] [CRC32].mkv
 RE_ANIME_RELEASE = re.compile(
     r"""(?ix)
     ^\s*(?:\[(?P<group>[^\]]+)\]\s*)?
-    (?P<title>[^\[\]\(\)]+?)\s*-\s*
-    (?P<episode>\d{1,4})(?:v\d+)?(?![xX\w])\s*
+    (?P<title>.+?)\s*-\s*
+    (?P<episode>\d{1,4})(?:-(?P<episode_end>\d{1,4}))?(?:v\d+)?(?![xX\w])\s*
     (?:\s*(?:\[?[0-9A-Fa-f]{8}\]?|\[(?P<tag>[^\]]+)\]|\((?P<tag_paren>[^\)]+)\))|\s+[A-Za-z0-9_.-]+)*\s*\]?$
     """
 )
 
-# Movie title and year: Title.Year.Quality or Title (Year)
+RE_ANIME_MOVIE = re.compile(
+    r"""(?ix)
+    ^\s*\[(?P<group>[^\]]+)\]\s*
+    (?P<title>[^\[]+?)\s*
+    (?:\[(?P<tag>[^\]]+)\]|\((?P<tag_paren>[^\)]+)\))
+    """
+)
+
+RE_YEAR_BOUND = re.compile(r"(?<![0-9a-zA-Z])(19\d{2}|20\d{2})(?![0-9a-zA-Z])")
 RE_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
+
+RE_EDITION = re.compile(
+    r"""(?ix)
+    \b(?P<edition>
+        directors?\.cut|director's\.cut|director's\scut
+        |
+        extended(?:\.cut|\.edition)?
+        |
+        remastered(?:\.edition)?|remaster
+        |
+        criterion(?:\.collection)?
+        |
+        final\.cut
+        |
+        theatrical(?:\.cut|\.version)?
+        |
+        unrated
+        |
+        special\.edition
+        |
+        imax(?:\.edition)?
+        |
+        ultimate\.edition
+    )\b
+    """
+)
+
+EDITION_CANONICAL_MAP: Dict[str, str] = {
+    "extended": "Extended",
+    "extended.cut": "Extended",
+    "extended.edition": "Extended",
+    "directors.cut": "Director's Cut",
+    "director's.cut": "Director's Cut",
+    "director's cut": "Director's Cut",
+    "remastered": "Remastered",
+    "remastered.edition": "Remastered",
+    "remaster": "Remastered",
+    "criterion": "Criterion",
+    "criterion.collection": "Criterion",
+    "final.cut": "Final Cut",
+    "theatrical": "Theatrical",
+    "theatrical.cut": "Theatrical",
+    "theatrical.version": "Theatrical",
+    "unrated": "Unrated",
+    "special.edition": "Special Edition",
+    "imax": "IMAX",
+    "imax.edition": "IMAX",
+    "ultimate.edition": "Ultimate Edition",
+}
+
+RE_MOVIE_PART = re.compile(
+    r"""(?ix)
+    \b(?:cd|part|pt|disc)[\.\s_-]*(?P<part_num>\d{1,2})\b
+    """
+)
+
+RE_DAILY_DATE = re.compile(
+    r"""(?ix)
+    (?<!\d)
+    (?P<year>19\d{2}|20\d{2})[-._]
+    (?P<month>0[1-9]|1[0-2])[-._]
+    (?P<day>0[1-9]|[12]\d|3[01])
+    (?!\d)
+    """
+)
 
 # Technical specs
 RE_RESOLUTION = re.compile(r"\b(2160p|4k|1080p|1080i|720p|576p|480p)\b", re.IGNORECASE)
@@ -48,6 +152,49 @@ RE_SOURCE = re.compile(r"\b(bluray|blu-ray|bdrip|web-dl|webrip|web|hdtv|dvdrip|d
 RE_VIDEO_CODEC = re.compile(r"\b(x265|x264|h\.?265|h\.?264|hevc|avc|av1|xvid|divx)\b", re.IGNORECASE)
 RE_AUDIO_CODEC = re.compile(r"\b(truehd|atmos|dts-hd|dts|flac|aac|ac3|ddp?5\.1|mp3)\b", re.IGNORECASE)
 RE_RELEASE_GROUP = re.compile(r"-([A-Za-z0-9_]+)(?:\[.*?\])?$", re.IGNORECASE)
+RE_RELEASE_GROUP_UPGRADED = re.compile(
+    r"-(?:\[(?P<grp_bracket>[A-Za-z0-9_.-]+)\]|(?P<grp_plain>[A-Za-z0-9_]+))(?:\[.*?\])?$",
+    re.IGNORECASE,
+)
+
+RE_ILLEGAL_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+RE_TECH_ALL = re.compile(
+    r"""(?ix)
+    \b(
+        2160p|4k|1080p|1080i|720p|576p|480p
+        |
+        \d{3,4}x(?:2160|1080|720|576|480)
+        |
+        bluray|blu-ray|bdrip|web-dl|webrip|web|hdtv|dvdrip|dvd|remux
+        |
+        x265|x264|h\.?265|h\.?264|hevc|avc|av1|xvid|divx
+        |
+        truehd|atmos|dts-hd|dts|flac|aac|ac3|ddp?5\.1|mp3
+        |
+        directors?\.cut|director's\.cut|director's\scut|extended|remastered|criterion|final\.cut
+        |
+        cd\d|part\d|pt\d
+        |
+        proper
+    )\b
+    """
+)
+
+KNOWN_ANIME_GROUPS = {
+    "subsplease", "horriblesubs", "erai-raws", "taigasubs", "judas", "commie", "asenshi", "coalgirls"
+}
+
+KNOWN_ANIME_TITLES = {
+    "naruto", "bleach", "one piece", "frieren", "dungeon meshi", "attack on titan",
+    "jujutsu kaisen", "mushoku tensei", "fairy tail", "fate stay night", "sword art online"
+}
+
+WINDOWS_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
 
 # Music / Audio track patterns: 01 - Title, 1-01 Title, Artist - 01 - Title
 RE_MUSIC_TRACK = re.compile(
@@ -91,10 +238,20 @@ class TokenizedFilename:
     video_codec: Optional[str] = None
     audio_codec: Optional[str] = None
     date_stamp: Optional[str] = None
+    air_date: Optional[str] = None
+    edition: Optional[str] = None
+    part: Optional[int] = None
+    part_label: Optional[str] = None
     is_anime: bool = False
     is_episodic: bool = False
     is_music: bool = False
     is_photo_or_home_video: bool = False
+    is_daily: bool = False
+    is_season_pack: bool = False
+
+
+# Contract alias per PROJECT.md:74
+TokenizedMedia = TokenizedFilename
 
 
 class FilenameTokenizer:
@@ -104,6 +261,20 @@ class FilenameTokenizer:
         stem = file_path.stem
         raw_name = file_path.name
         tokens = TokenizedFilename(raw_name=raw_name)
+        ext = file_path.suffix.lower()
+
+        # Check Windows reserved names
+        if stem.upper() in WINDOWS_RESERVED:
+            tokens.title = stem.upper()
+            tokens.is_photo_or_home_video = True
+            return tokens
+
+        # Pre-clean illegal characters
+        had_illegal = False
+        if RE_ILLEGAL_CHARS.search(stem):
+            had_illegal = True
+            stem = RE_ILLEGAL_CHARS.sub(" ", stem)
+            stem = re.sub(r"\s+", " ", stem).strip()
 
         # 1. Technical specifications
         res_m = RE_RESOLUTION.search(stem)
@@ -128,6 +299,18 @@ class FilenameTokenizer:
         if ac_m:
             tokens.audio_codec = ac_m.group(1).upper()
 
+        # Check edition
+        ed_m = RE_EDITION.search(stem)
+        if ed_m:
+            ed_raw = ed_m.group("edition").lower().replace(" ", ".")
+            tokens.edition = EDITION_CANONICAL_MAP.get(ed_raw, ed_m.group("edition"))
+
+        # Check part
+        pt_m = RE_MOVIE_PART.search(stem)
+        if pt_m:
+            tokens.part = int(pt_m.group("part_num"))
+            tokens.part_label = f"Pt.{tokens.part}"
+
         # 2. Check for Podcast date format
         pod_m = RE_PODCAST_DATE.match(stem)
         if pod_m:
@@ -135,39 +318,61 @@ class FilenameTokenizer:
             tokens.artist = pod_m.group("show").strip()
             tokens.year = int(pod_m.group("year"))
             tokens.date_stamp = f"{pod_m.group('year')}-{pod_m.group('month')}-{pod_m.group('day')}"
+            tokens.air_date = tokens.date_stamp
             return tokens
 
-        # 3. Check for Camera / Date stamp (Photos & Home Videos)
+        # 3. Check for Daily / Broadcast dated format (TV or Podcast)
+        daily_m = RE_DAILY_DATE.search(stem)
+        if daily_m:
+            y, m, d = daily_m.group("year"), daily_m.group("month"), daily_m.group("day")
+            date_str = f"{y}-{m}-{d}"
+            tokens.date_stamp = date_str
+            tokens.air_date = date_str
+            tokens.year = int(y)
+            prefix = stem[: daily_m.start()]
+            clean_pfx = self._clean_title(prefix)
+            tokens.title = clean_pfx
+            if ext in {".mp3", ".flac", ".ogg", ".m4a", ".aac"}:
+                tokens.artist = clean_pfx
+            else:
+                tokens.is_daily = True
+                tokens.is_episodic = True
+                tokens.season = int(y)
+            return tokens
+
+        # 4. Check for Camera / Date stamp (Photos & Home Videos)
         cam_m = RE_CAMERA_DATE.search(stem)
         if cam_m:
             y, m, d = cam_m.group("year"), cam_m.group("month"), cam_m.group("day")
             tokens.date_stamp = f"{y}-{m}-{d}"
             tokens.year = int(y)
             tokens.is_photo_or_home_video = True
+            return tokens
 
-        # 4. Check for Anime format
-        anime_m = RE_ANIME_RELEASE.match(stem)
-        if anime_m and (anime_m.group("group") or file_path.suffix.lower() in {".mkv", ".mp4", ".avi", ".mov", ".ts", ".webm", ".m4v", ".flv"}):
-            ep_val = int(anime_m.group("episode"))
-            grp_name = anime_m.group("group").strip() if anime_m.group("group") else None
-            if 1900 <= ep_val <= 2099:
-                # 4-digit number in year range is a release year (e.g. [Group] Title - 2024 [1080p])
-                tokens.year = ep_val
-                tokens.title = self._clean_title(anime_m.group("title"))
-                tokens.group = grp_name
-                tokens.is_anime = False
-                tokens.is_episodic = False
-                return tokens
-            else:
-                tokens.is_anime = True
-                tokens.group = grp_name
-                tokens.title = self._clean_title(anime_m.group("title"))
-                tokens.episode = ep_val
-                tokens.season = self._extract_season_from_path(file_path) or 1
-                tokens.is_episodic = True
-                return tokens
+        # 5. Check Roman Numeral TV pattern: Rome.Season.II.Episode.IV
+        roman_m = RE_ROMAN_SEASON_EPISODE.search(stem)
+        if roman_m:
+            tokens.is_episodic = True
+            s_rom = roman_m.group("season_roman").lower()
+            e_rom = roman_m.group("episode_roman").lower()
+            tokens.season = ROMAN_NUMERALS.get(s_rom, 1)
+            tokens.episode = ROMAN_NUMERALS.get(e_rom, 1)
+            prefix = stem[: roman_m.start()]
+            tokens.title = self._clean_title(prefix)
+            return tokens
 
-        # 4. Check for Standard TV episodic patterns (S01E02, 1x02, Season 1 Episode 2, Episode 207)
+        # 6. Check TV Season Pack: Succession.S02.Complete
+        pack_m = RE_SEASON_PACK.search(stem)
+        if pack_m:
+            tokens.is_episodic = True
+            tokens.is_season_pack = True
+            s_val = pack_m.group("season_pack") or pack_m.group("season_pack_word")
+            tokens.season = int(s_val)
+            prefix = stem[: pack_m.start()]
+            tokens.title = self._clean_title(prefix)
+            return tokens
+
+        # 7. Check Standard TV episodic patterns (S01E02, 1x02, Season 1 Episode 2, Episode 207)
         tv_m = RE_SEASON_EPISODE.search(stem)
         if tv_m:
             tokens.is_episodic = True
@@ -181,9 +386,14 @@ class FilenameTokenizer:
             if ep_str:
                 tokens.episode = int(ep_str)
 
-            end_ep = tv_m.group("episode_end")
+            end_ep = tv_m.group("episode_end") or tv_m.group("episode_x_end") or tv_m.group("episode_word_end")
             if end_ep:
                 tokens.multi_episodes = list(range(tokens.episode, int(end_ep) + 1))
+
+            # If filename had illegal characters and matched standalone episode (e.g. Show: "Special" <Episode> | 1?.mkv)
+            if had_illegal and tv_m.group("episode_standalone"):
+                tokens.title = self._clean_title(stem)
+                return tokens
 
             # Extract title before season marker
             prefix = stem[: tv_m.start()]
@@ -193,9 +403,9 @@ class FilenameTokenizer:
             else:
                 tokens.title = self._extract_title_from_context(file_path) or "Episode"
 
-            # Check for year in prefix
+            # Check for year in prefix using RE_YEAR_BOUND
             if prefix:
-                yr_m = RE_YEAR.search(prefix)
+                yr_m = RE_YEAR_BOUND.search(prefix)
                 if yr_m:
                     tokens.year = int(yr_m.group(1))
                     tokens.title = self._clean_title(prefix[: yr_m.start()])
@@ -207,13 +417,54 @@ class FilenameTokenizer:
                 tokens.episode_title = ep_title
 
             # Release group at end
-            grp_m = RE_RELEASE_GROUP.search(stem)
+            grp_m = RE_RELEASE_GROUP_UPGRADED.search(stem)
             if grp_m:
-                tokens.group = grp_m.group(1)
+                tokens.group = grp_m.group("grp_bracket") or grp_m.group("grp_plain")
+
+            # Check if title is a known anime title
+            if tokens.title and tokens.title.lower() in KNOWN_ANIME_TITLES:
+                tokens.is_anime = True
 
             return tokens
 
-        # 6. Check for Music track pattern
+        # 8. Check Anime fansub format: [Group] Title - 01 [1080p]
+        anime_m = RE_ANIME_RELEASE.match(stem)
+        if anime_m and (anime_m.group("group") or ext in {".mkv", ".mp4", ".avi", ".mov", ".ts", ".webm", ".m4v", ".flv"}):
+            ep_val = int(anime_m.group("episode"))
+            grp_name = anime_m.group("group").strip() if anime_m.group("group") else None
+            raw_title = anime_m.group("title")
+            title_clean = self._clean_title(raw_title, preserve_paren=True)
+
+            # Distinguish movie year from anime episode
+            if 1900 <= ep_val <= 2099 and not anime_m.group("episode_end"):
+                tokens.year = ep_val
+                tokens.title = title_clean
+                tokens.group = grp_name
+                tokens.is_anime = False
+                tokens.is_episodic = False
+                return tokens
+            else:
+                tokens.is_anime = True
+                tokens.group = grp_name
+                tokens.title = title_clean
+                tokens.episode = ep_val
+                if anime_m.group("episode_end"):
+                    tokens.multi_episodes = list(range(ep_val, int(anime_m.group("episode_end")) + 1))
+                tokens.season = self._extract_season_from_path(file_path) or 1
+                tokens.is_episodic = True
+                return tokens
+
+        # 9. Check Anime movie format: [Judas] Fate Stay Night... [BD 1080p]
+        anime_mov_m = RE_ANIME_MOVIE.match(stem)
+        if anime_mov_m:
+            grp = anime_mov_m.group("group").strip()
+            if grp.lower() in KNOWN_ANIME_GROUPS:
+                tokens.group = grp
+                tokens.is_anime = True
+                tokens.title = self._clean_title(anime_mov_m.group("title"), preserve_dots=True)
+                return tokens
+
+        # 10. Check for Music track pattern
         mus_m = RE_MUSIC_TRACK.match(stem)
         if mus_m:
             tokens.is_music = True
@@ -222,7 +473,6 @@ class FilenameTokenizer:
                 tokens.disc = int(mus_m.group("disc"))
             tokens.title = self._clean_title(mus_m.group("title"))
 
-            # Parent folder context often holds Artist and Album
             parent = file_path.parent
             if parent and parent.name:
                 parts = parent.name.split(" - ")
@@ -231,27 +481,67 @@ class FilenameTokenizer:
                     tokens.album = parts[1].strip()
             return tokens
 
-        # 7. Movie pattern: Title (Year) or Title.Year.Quality
-        yr_m = RE_YEAR.search(stem)
-        if yr_m:
-            tokens.year = int(yr_m.group(1))
-            prefix = stem[: yr_m.start()]
+        # 11. Movie pattern: Title (Year) or Title.Year.Quality
+        # Parenthesized year first
+        paren_yr = re.search(r"\((19\d{2}|20\d{2})\)", stem)
+        if paren_yr:
+            tokens.year = int(paren_yr.group(1))
+            prefix = stem[: paren_yr.start()]
             tokens.title = self._clean_title(prefix)
-            grp_m = RE_RELEASE_GROUP.search(stem)
+            grp_m = RE_RELEASE_GROUP_UPGRADED.search(stem)
             if grp_m:
-                tokens.group = grp_m.group(1)
+                tokens.group = grp_m.group("grp_bracket") or grp_m.group("grp_plain")
             return tokens
 
-        # Fallback: clean the whole stem as title
-        tokens.title = self._clean_title(stem)
+        # Delimiter-based right-to-left year detection
+        tech_start = len(stem)
+        for m in RE_TECH_ALL.finditer(stem):
+            if m.start() < tech_start:
+                tech_start = m.start()
+
+        year_matches = list(RE_YEAR_BOUND.finditer(stem))
+        if year_matches:
+            valid_matches = [m for m in year_matches if m.start() <= tech_start]
+            if not valid_matches:
+                valid_matches = year_matches
+            best_match = valid_matches[-1]
+            tokens.year = int(best_match.group(1))
+            prefix = stem[: best_match.start()]
+            tokens.title = self._clean_title(prefix)
+            grp_m = RE_RELEASE_GROUP_UPGRADED.search(stem)
+            if grp_m:
+                tokens.group = grp_m.group("grp_bracket") or grp_m.group("grp_plain")
+            return tokens
+
+        # Fallback: strip tech specs and clean whole stem as title
+        prefix = stem[:tech_start].strip(" .-_")
+        tokens.title = self._clean_title(prefix if prefix else stem)
+        grp_m = RE_RELEASE_GROUP_UPGRADED.search(stem)
+        if grp_m:
+            tokens.group = grp_m.group("grp_bracket") or grp_m.group("grp_plain")
         return tokens
 
-    def _clean_title(self, raw: str) -> str:
+    def _clean_title(self, raw: str, preserve_paren: bool = False, preserve_dots: bool = False) -> str:
         """Replace dots, underscores, and scene separators with clean spaces."""
+        # Strip leading bracket tags like [YTS.MX] or [SubsPlease] if present
         raw = re.sub(r"^\s*\[[^\]]+\]\s*", "", raw)
-        cleaned = re.sub(r"[\._]+", " ", raw).strip()
-        # Remove trailing hyphens or brackets
-        cleaned = re.sub(r"[\-\(\)\[\]]+$", "", cleaned).strip()
+
+        if preserve_dots:
+            cleaned = re.sub(r"_+", " ", raw).strip()
+        else:
+            # Replace dots with space, except if dot is followed by space in Roman numeral (e.g. "I. ")
+            cleaned = re.sub(r"(?<=\b[IVXLCDM])\.\s+", "._KEEP_DOT_SPACE_", raw)
+            cleaned = re.sub(r"[\._]+", " ", cleaned)
+            cleaned = cleaned.replace("._KEEP_DOT_SPACE_", ". ")
+
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+        if preserve_paren and re.search(r"\([12]\d{3}\)$", cleaned):
+            # Do not strip trailing parenthesis if it's (Year)
+            pass
+        else:
+            cleaned = re.sub(r"[\-\(\)\[\]]+$", "", cleaned).strip()
+
         return cleaned
 
     def _extract_episode_title(self, suffix: str) -> Optional[str]:
@@ -260,13 +550,13 @@ class FilenameTokenizer:
         if not s:
             return None
         # Split by known tech tags
-        for reg in (RE_RESOLUTION, RE_SOURCE, RE_VIDEO_CODEC, RE_AUDIO_CODEC):
+        for reg in (RE_RESOLUTION, RE_SOURCE, RE_VIDEO_CODEC, RE_AUDIO_CODEC, RE_EDITION):
             m = reg.search(s)
             if m:
                 s = s[: m.start()].strip(" .-_")
 
         # Strip release group
-        grp = RE_RELEASE_GROUP.search(s)
+        grp = RE_RELEASE_GROUP_UPGRADED.search(s)
         if grp:
             s = s[: grp.start()].strip(" .-_")
 

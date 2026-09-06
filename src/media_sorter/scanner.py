@@ -210,24 +210,47 @@ class Scanner:
         all_discovered: List[ScannedFile],
     ) -> None:
         """Associate sidecar files (subtitles, artwork, nfo) with primary media files."""
-        # Index primaries by parent dir and stem
+        # Index primaries by parent dir
         primaries_by_dir: Dict[Path, List[ScannedFile]] = {}
         for p in primaries:
-            primaries_by_dir.setdefault(p.path.parent, []).append(p)
+            primaries_by_dir.setdefault(p.path.parent.resolve(), []).append(p)
 
         for s in sidecars:
-            parent = s.path.parent
+            parent = s.path.parent.resolve()
             candidates = primaries_by_dir.get(parent, [])
 
-            # Check if any primary file stem is a prefix of the sidecar stem
+            # Support subdirectories like Subs/ or Subtitles/
+            if not candidates and parent.name.lower() in ("subs", "subtitles", "sub"):
+                parent = parent.parent
+                candidates = primaries_by_dir.get(parent, [])
+
             matched_primary = None
             s_stem = s.path.stem.lower()
 
-            for c in candidates:
+            # Sort candidates longest stem first so "Movie.Part2" matches before "Movie"
+            sorted_candidates = sorted(candidates, key=lambda c: len(c.path.stem), reverse=True)
+
+            for c in sorted_candidates:
                 c_stem = c.path.stem.lower()
-                if s_stem == c_stem or s_stem.startswith(c_stem):
+                if s_stem == c_stem:
                     matched_primary = c
                     break
+                # Check delimiter boundary: must be followed by '.', '-', '_', or ' '
+                if s_stem.startswith(c_stem) and len(s_stem) > len(c_stem):
+                    next_char = s_stem[len(c_stem)]
+                    if next_char in (".", "-", "_", " "):
+                        matched_primary = c
+                        break
+
+            # Fallback for single-video directories with generic sidecars (movie.nfo, poster.jpg, en.srt)
+            if not matched_primary and len(candidates) == 1:
+                if (
+                    s.sidecar_type in ("metadata", "artwork")
+                    or s.path.suffix.lower() in METADATA_EXTS
+                    or s.path.suffix.lower() in SUBTITLE_EXTS
+                    or s.path.suffix.lower() in ARTWORK_EXTS
+                ):
+                    matched_primary = candidates[0]
 
             if matched_primary:
                 s.primary_media_path = matched_primary.path

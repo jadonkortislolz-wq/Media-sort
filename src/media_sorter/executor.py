@@ -108,6 +108,7 @@ class PlannedOperation:
     conflict_resolved_dst: Optional[Path] = None
     quarantine: bool = False
     quarantine_reason: Optional[str] = None
+    primary_src: Optional[Path] = None
 
 
 @dataclass
@@ -139,12 +140,38 @@ class MediaExecutor:
         """Validate destination conflicts and resolve destination paths."""
         allocated_destinations: Dict[Path, PlannedOperation] = {}
         validated_plan: List[PlannedOperation] = []
+        primary_resolutions: Dict[Path, Path] = {}
+        primary_orig_to_resolved: Dict[Path, Path] = {}
 
         for item in planned_items:
             # If already marked for quarantine, keep as is
             if item.quarantine:
                 validated_plan.append(item)
                 continue
+
+            # Check if this item is a sidecar whose primary was renamed
+            orig_target_dst = item.dst
+            if item.category in ("subtitle", "artwork", "metadata") or item.primary_src:
+                p_src = item.primary_src
+                resolved_p_dst = None
+                if p_src and p_src in primary_resolutions:
+                    resolved_p_dst = primary_resolutions[p_src]
+                else:
+                    for orig_p_dst, res_p_dst in primary_orig_to_resolved.items():
+                        if orig_p_dst.parent == item.dst.parent and item.dst.stem.lower().startswith(orig_p_dst.stem.lower()):
+                            resolved_p_dst = res_p_dst
+                            break
+
+                if resolved_p_dst and resolved_p_dst.stem != item.dst.stem:
+                    orig_stem = item.dst.stem
+                    p_orig_stem = None
+                    for orig_p_dst in primary_orig_to_resolved:
+                        if orig_stem.lower().startswith(orig_p_dst.stem.lower()):
+                            p_orig_stem = orig_p_dst.stem
+                            break
+                    tag = orig_stem[len(p_orig_stem):] if p_orig_stem else ""
+                    new_sidecar_name = f"{resolved_p_dst.stem}{tag}{item.dst.suffix}"
+                    item.dst = resolved_p_dst.parent / new_sidecar_name
 
             target_dst = item.dst
 
@@ -174,6 +201,11 @@ class MediaExecutor:
             item.dst = target_dst
             allocated_destinations[target_dst] = item
             validated_plan.append(item)
+
+            # Record primary resolution for companion alignment
+            if item.category not in ("subtitle", "artwork", "metadata"):
+                primary_resolutions[item.src] = item.dst
+                primary_orig_to_resolved[orig_target_dst] = item.dst
 
         return validated_plan
 
@@ -523,7 +555,14 @@ class MediaExecutor:
             batch = query.filter_by(id=batch_id).first()
         else:
             # Default to latest non-rolled-back completed batch
-            batch = query.filter(BatchRecord.status != "ROLLED_BACK", BatchRecord.dry_run == False).order_by(BatchRecord.created_at.desc()).first()
+            batch = (
+                query.filter(
+                    BatchRecord.status.in_(["COMPLETED", "PARTIAL_FAILURE", "PARTIAL_ROLLBACK"]),
+                    BatchRecord.dry_run == False,
+                )
+                .order_by(BatchRecord.created_at.desc())
+                .first()
+            )
 
         if not batch:
             logger.warning("No qualifying batch found for rollback", requested_id=batch_id)
@@ -539,6 +578,9 @@ class MediaExecutor:
         )
 
         reverted_count = 0
+        failed_count = 0
+        reverted_dest_dirs: Set[Path] = set()
+
         for op in ops:
             src = Path(op.src)
             dst = Path(op.dst)
@@ -548,36 +590,96 @@ class MediaExecutor:
                 if action == ActionType.MOVE.value:
                     if dst.exists():
                         src.parent.mkdir(parents=True, exist_ok=True)
-                        os.replace(dst, src)
+                        self._safe_move(dst, src)
                         reverted_count += 1
+                        reverted_dest_dirs.add(dst.parent)
 
                     # Restore backup if one was taken
                     if op.backup_path and Path(op.backup_path).exists():
-                        os.replace(Path(op.backup_path), dst)
+                        self._safe_move(Path(op.backup_path), dst)
 
                 elif action == ActionType.COPY.value:
                     if dst.exists():
                         dst.unlink()
                         reverted_count += 1
+                        reverted_dest_dirs.add(dst.parent)
 
                 elif action in (ActionType.LINK.value, ActionType.HARDLINK.value):
                     if dst.exists() or dst.is_symlink():
                         dst.unlink()
                         reverted_count += 1
+                        reverted_dest_dirs.add(dst.parent)
 
                 op.status = OperationStatus.ROLLED_BACK.value
+
+                # Delete FileRecord for destination
+                rec = self.session.query(FileRecord).filter_by(path=str(dst)).first()
+                if rec:
+                    self.session.delete(rec)
             except Exception as e:
+                failed_count += 1
                 logger.error("Error reverting operation during rollback", op_id=op.id, error=str(e))
 
-        batch.status = "ROLLED_BACK"
+        if failed_count == 0 and reverted_count > 0:
+            batch.status = "ROLLED_BACK"
+        elif reverted_count > 0:
+            batch.status = "PARTIAL_ROLLBACK"
+        else:
+            batch.status = "ROLLBACK_FAILED"
+
         self.session.commit()
+
+        # Clean empty directories in destination tree
+        self._clean_empty_destination_dirs(reverted_dest_dirs)
+
         return reverted_count
+
+    def _clean_empty_destination_dirs(self, dest_dirs: Set[Path]) -> None:
+        """Prune empty parent folders in destination tree after rollback."""
+        dest_roots = {
+            self.settings.get_destination_path(cat).resolve()
+            for cat in ("movie", "tv", "anime", "music", "audiobook", "podcast", "photo", "home_video", "documentary", "quarantine")
+        }
+        dest_base = self.settings.get_destination_base_path().resolve()
+        dest_roots.add(dest_base)
+
+        candidate_dirs: Set[Path] = set()
+        for d in dest_dirs:
+            try:
+                curr = d.resolve()
+                while curr not in dest_roots and any(curr.is_relative_to(r) for r in dest_roots):
+                    candidate_dirs.add(curr)
+                    curr = curr.parent
+            except Exception:
+                continue
+
+        sorted_dirs = sorted(candidate_dirs, key=lambda p: len(p.parts), reverse=True)
+        for d in sorted_dirs:
+            if not d.exists() or not d.is_dir() or d in dest_roots:
+                continue
+            try:
+                entries = [
+                    e for e in d.iterdir()
+                    if e.name not in (".DS_Store", "Thumbs.db", "desktop.ini")
+                ]
+                if not entries:
+                    for junk in list(d.iterdir()):
+                        try:
+                            junk.unlink()
+                        except Exception:
+                            pass
+                    d.rmdir()
+            except Exception:
+                pass
 
     def rollback_all(self) -> int:
         """Roll back ALL completed, non-rolled-back batches in reverse chronological order."""
         batches = (
             self.session.query(BatchRecord)
-            .filter(BatchRecord.status != "ROLLED_BACK", BatchRecord.dry_run == False)
+            .filter(
+                BatchRecord.status.in_(["COMPLETED", "PARTIAL_FAILURE", "PARTIAL_ROLLBACK"]),
+                BatchRecord.dry_run == False,
+            )
             .order_by(BatchRecord.created_at.desc())
             .all()
         )

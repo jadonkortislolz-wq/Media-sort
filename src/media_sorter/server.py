@@ -29,7 +29,9 @@ from sqlalchemy.engine import Engine
 from .config import ActionType, Settings
 from .db import get_db_session, init_db
 from . import __version__
+from .executor import ProcessLockError, acquire_process_lock
 from .models import BatchRecord, Operation, QuarantineRecord, QuarantineStatus
+from .namer import sanitize_filename_component
 from .quarantine import QuarantineManager
 from .sorter import MediaSorterApp
 from .tokenizer import FilenameTokenizer
@@ -573,40 +575,6 @@ def inspect_downloads_folder(
     # Cluster non-show files into unsure dropdown groups and singles
     unsure_groups, singles = cluster_unsure_files(unsure_candidates, settings)
 
-    # Automatically record detected shows in library catalog
-    if session is not None:
-        try:
-            from .library import record_detected_item
-            for show_item in shows_list:
-                record_detected_item(
-                    session,
-                    settings,
-                    show_item["show_name"],
-                    "tv",
-                    destination_folder=show_item["believed_destination_folder"],
-                    poster_url=show_item.get("poster_url"),
-                    delta_count=show_item["count"],
-                )
-        except Exception:
-            pass
-    elif engine is not None:
-        try:
-            from .db import get_db_session
-            from .library import record_detected_item
-            with get_db_session(engine) as sess:
-                for show_item in shows_list:
-                    record_detected_item(
-                        sess,
-                        settings,
-                        show_item["show_name"],
-                        "tv",
-                        destination_folder=show_item["believed_destination_folder"],
-                        poster_url=show_item.get("poster_url"),
-                        delta_count=show_item["count"],
-                    )
-        except Exception:
-            pass
-
     return {
         "path": str(directory),
         "total_files": len(all_files),
@@ -635,7 +603,9 @@ def create_app(
                 if interval > 0:
                     try:
                         sorter = MediaSorterApp(settings, engine)
-                        sorter.run()
+                        await asyncio.to_thread(sorter.run)
+                    except ProcessLockError:
+                        logger.debug("Auto-sort skipped: another operation holds execution lock")
                     except Exception as e:
                         logger.error("Auto-sort background task error", error=str(e))
                 await asyncio.sleep(max(interval, 10) if interval > 0 else 10)
@@ -761,7 +731,12 @@ def create_app(
         """Execute sorter run (dry-run or live)."""
         sorter = MediaSorterApp(settings, engine)
         is_dry = settings.general.dry_run if req.dry_run is None else req.dry_run
-        report = sorter.run(dry_run=is_dry)
+        try:
+            report = sorter.run(dry_run=is_dry)
+        except ProcessLockError:
+            raise HTTPException(
+                status_code=409, detail="Another operation is currently locking the media library"
+            )
         return {
             "batch_id": report.batch_id,
             "dry_run": report.dry_run,
@@ -788,15 +763,29 @@ def create_app(
     @app.post("/api/rollback")
     def trigger_rollback(req: RollbackRequest):
         """Roll back last batch or specified batch ID."""
-        sorter = MediaSorterApp(settings, engine)
-        reverted = sorter.rollback(batch_id=req.batch_id)
+        lock_path = settings.get_database_path().with_suffix(".lock")
+        try:
+            with acquire_process_lock(lock_path):
+                sorter = MediaSorterApp(settings, engine)
+                reverted = sorter.rollback(batch_id=req.batch_id)
+        except ProcessLockError:
+            raise HTTPException(
+                status_code=409, detail="Another operation is currently locking the media library"
+            )
         return {"status": "ok", "reverted_files": reverted}
 
     @app.post("/api/rollback/all")
     def trigger_rollback_all():
         """Roll back all past completed batches."""
-        sorter = MediaSorterApp(settings, engine)
-        reverted = sorter.rollback_all()
+        lock_path = settings.get_database_path().with_suffix(".lock")
+        try:
+            with acquire_process_lock(lock_path):
+                sorter = MediaSorterApp(settings, engine)
+                reverted = sorter.rollback_all()
+        except ProcessLockError:
+            raise HTTPException(
+                status_code=409, detail="Another operation is currently locking the media library"
+            )
         return {"status": "ok", "reverted_files": reverted}
 
 
@@ -818,6 +807,12 @@ def create_app(
                 "files": list_files_in_dir(shows_path),
             },
         }
+
+    @app.get("/api/files/scan")
+    @app.post("/api/files/scan")
+    def scan_files():
+        """Alias route for /api/files/scan (supporting GET and POST) delegating to get_files()."""
+        return get_files()
 
     @app.post("/api/files/test-sample")
     def generate_test_samples():
@@ -857,13 +852,14 @@ def create_app(
             else:
                 raise HTTPException(status_code=404, detail="File not found")
         target.unlink()
-        # Delete companion .txt file if present
-        companion_txt = target.with_suffix(".txt")
-        if companion_txt.is_file() and companion_txt != target:
-            try:
-                companion_txt.unlink()
-            except Exception:
-                pass
+        # Delete companion .txt, .srt, .sub, .ass, .nfo files if present
+        for comp_ext in (".txt", ".srt", ".sub", ".ass", ".nfo"):
+            comp_file = target.with_suffix(comp_ext)
+            if comp_file.is_file() and comp_file != target:
+                try:
+                    comp_file.unlink()
+                except Exception:
+                    pass
 
         # Clean up empty parent directories up to downloads_path
         parent = target.parent
@@ -1119,54 +1115,77 @@ def create_app(
             found = None
             for root, _, files in os.walk(downloads_path):
                 if req.relative_path in files or target.name in files:
-                    found = Path(root) / (req.relative_path if req.relative_path in files else target.name)
-                    break
-            if found and found.is_file():
+                    candidate = Path(root) / (req.relative_path if req.relative_path in files else target.name)
+                    if candidate.is_relative_to(downloads_path) and candidate.is_file():
+                        found = candidate
+                        break
+            if found:
                 target = found
             else:
                 raise HTTPException(status_code=404, detail="File not found")
 
         category = req.category.lower()
+        raw_title = req.title.strip()
+        clean_title = sanitize_filename_component(raw_title)
+        if not clean_title or clean_title == "unnamed":
+            raise HTTPException(status_code=400, detail="Invalid title: contains only forbidden characters")
+
         if category == "movie":
-            movies_base = settings.get_destination_path("movie")
-            movie_title = req.title.strip()
+            movies_base = settings.get_destination_path("movie").resolve()
             year = req.year
-            y_m = re.search(r"\((19\d\d|20\d\d)\)", movie_title)
+            y_m = re.search(r"\((19\d\d|20\d\d)\)", clean_title)
             if y_m and not year:
                 year = int(y_m.group(1))
-                movie_title = re.sub(r"\s*\(\d{4}\)", "", movie_title).strip()
-            folder_name = f"{movie_title} ({year})" if year else movie_title
-            dest_dir = movies_base / folder_name
+                clean_title = re.sub(r"\s*\(\d{4}\)", "", clean_title).strip(" .-")
+            folder_name = f"{clean_title} ({year})" if year else clean_title
+            folder_name = sanitize_filename_component(folder_name)
+            dest_dir = (movies_base / folder_name).resolve()
+            if not dest_dir.is_relative_to(movies_base):
+                raise HTTPException(status_code=400, detail="Directory traversal detected in movie destination")
             dest_dir.mkdir(parents=True, exist_ok=True)
-            final_dst = dest_dir / f"{folder_name}{target.suffix}"
+            final_name = sanitize_filename_component(f"{folder_name}{target.suffix}")
+            final_dst = dest_dir / final_name
         elif category == "tv":
-            shows_base = settings.get_destination_path("tv")
-            show_name = req.title.strip()
-            season = req.season if req.season is not None else 1
-            episode = req.episode if req.episode is not None else 1
-            dest_dir = shows_base / show_name / f"Season {season:02d}"
+            shows_base = settings.get_destination_path("tv").resolve()
+            season = max(0, req.season) if req.season is not None else 1
+            episode = max(0, req.episode) if req.episode is not None else 1
+            dest_dir = (shows_base / clean_title / f"Season {season:02d}").resolve()
+            if not dest_dir.is_relative_to(shows_base):
+                raise HTTPException(status_code=400, detail="Directory traversal detected in show destination")
             dest_dir.mkdir(parents=True, exist_ok=True)
-            final_dst = dest_dir / f"{show_name} - S{season:02d}E{episode:02d}{target.suffix}"
+            file_name = sanitize_filename_component(f"{clean_title} - S{season:02d}E{episode:02d}{target.suffix}")
+            final_dst = dest_dir / file_name
         else:
-            dest_dir = settings.get_destination_path(category)
+            dest_base = settings.get_destination_path(category).resolve()
+            dest_dir = dest_base
             dest_dir.mkdir(parents=True, exist_ok=True)
-            final_dst = dest_dir / target.name
+            final_name = sanitize_filename_component(target.name)
+            final_dst = dest_dir / final_name
+            if not final_dst.resolve().is_relative_to(dest_base):
+                raise HTTPException(status_code=400, detail="Invalid destination path")
 
-        shutil.move(target, final_dst)
-        with get_db_session(engine) as session:
-            try:
-                from .library import record_detected_item
-                record_detected_item(
-                    session,
-                    settings,
-                    req.title.strip(),
-                    category,
-                    destination_folder=str(dest_dir),
-                    year=req.year,
-                    delta_count=1,
-                )
-            except Exception as e:
-                logger.error("Error updating library from manual sort", error=str(e))
+        lock_path = settings.get_database_path().with_suffix(".lock")
+        try:
+            with acquire_process_lock(lock_path):
+                shutil.move(target, final_dst)
+                with get_db_session(engine) as session:
+                    try:
+                        from .library import record_detected_item
+                        record_detected_item(
+                            session,
+                            settings,
+                            clean_title,
+                            category,
+                            destination_folder=str(dest_dir),
+                            year=req.year,
+                            delta_count=1,
+                        )
+                    except Exception as e:
+                        logger.error("Error updating library from manual sort", error=str(e))
+        except ProcessLockError:
+            raise HTTPException(
+                status_code=409, detail="Another operation is currently locking the media library"
+            )
 
         return {"status": "moved", "destination": str(final_dst)}
 
@@ -1448,12 +1467,9 @@ def create_app(
         destination = req.get("destination")
         if show_idx is None or destination is None:
             raise HTTPException(status_code=400, detail="Missing parameters")
-        # Update the global client‑side cache for this request cycle. The UI
-        # already updates its own copy, but we mirror it here for completeness.
-        if 0 <= show_idx < len(currentExplorerShows):
-            currentExplorerShows[show_idx]["believed_destination_folder"] = destination
-        return {"success": True}
+        return {"status": "ok", "destination": destination, "success": True}
 
+    @app.post("/api/restart")
     def trigger_server_restart(background_tasks: BackgroundTasks):
         """Trigger process restart (works with PM2 or standalone)."""
         def _deferred_restart():
@@ -1470,14 +1486,46 @@ def create_app(
         background_tasks.add_task(_deferred_restart)
         return {"status": "restarting", "message": "Server restart initiated. Reconnecting in a few seconds..."}
 
+
     @app.get("/api/poster/local")
     def serve_local_poster(path: str):
-        """Serve a local show artwork image securely."""
-        p = Path(path).resolve()
-        if not p.exists() or not p.is_file():
-            raise HTTPException(status_code=404, detail="Poster file not found")
+        """Serve a local show artwork image securely within configured storage roots."""
+        try:
+            p = Path(path).resolve()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Malformed file path")
+
         if p.suffix.lower() not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
             raise HTTPException(status_code=400, detail="Not an image file")
+
+        allowed_roots: List[Path] = []
+        for src in settings.get_source_paths():
+            try:
+                allowed_roots.append(src.resolve())
+            except Exception:
+                pass
+
+        for cat in (
+            "movie", "tv", "anime", "quarantine", "music",
+            "audiobook", "podcast", "photo", "home_video", "documentary",
+            "ebook", "comic", "document"
+        ):
+            try:
+                allowed_roots.append(settings.get_destination_path(cat).resolve())
+            except Exception:
+                pass
+
+        is_contained = any(p == root or p.is_relative_to(root) for root in allowed_roots)
+        if not is_contained:
+            logger.warning("Path traversal attempt blocked in /api/poster/local", path=str(p))
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: path is outside configured media storage directories",
+            )
+
+        if not p.exists() or not p.is_file():
+            raise HTTPException(status_code=404, detail="Poster file not found")
+
         return FileResponse(p)
 
     @app.get("/api/poster")
@@ -1535,6 +1583,12 @@ def create_app(
       try {
         var t = localStorage.getItem('ms-theme') || 'cyber-dark';
         document.documentElement.setAttribute('data-theme', t);
+        if (localStorage.getItem('ms-rgb-mode') === '1') {
+          document.documentElement.classList.add('rgb-mode');
+        }
+        var sp = localStorage.getItem('ms-rgb-speed') || '50';
+        var d = (10 - (parseInt(sp, 10) / 100) * 9.5).toFixed(2) + 's';
+        document.documentElement.style.setProperty('--rgb-duration', d);
       } catch (e) {}
     })();
   </script>
@@ -2267,6 +2321,106 @@ def create_app(
       --badge-bg: #173b75;
     }
 
+    /* 26. Neon Forest (Glow Green & Dark Moss) */
+    [data-theme="neon-forest"] {
+      --bg: #001408;
+      --card-bg: #032410;
+      --card-hover: #07381b;
+      --border: #0d542a;
+      --text: #c8facc;
+      --text-muted: #5ea874;
+      --text-title: #39ff14;
+      --accent: #39ff14;
+      --accent-hover: #2ecc11;
+      --emerald: #00ff88;
+      --emerald-hover: #00cc6a;
+      --amber: #b8e986;
+      --rose: #ff4757;
+      --indigo: #2ed573;
+      --subbar-bg: rgba(0, 20, 8, 0.9);
+      --badge-bg: #07381b;
+    }
+
+    /* 27. Retro Retro (Pixel Pink & Electric Blue) */
+    [data-theme="retro-retro"] {
+      --bg: #120024;
+      --card-bg: #220038;
+      --card-hover: #330052;
+      --border: #6b0099;
+      --text: #fce7f3;
+      --text-muted: #d946ef;
+      --text-title: #00ffff;
+      --accent: #ff00ff;
+      --accent-hover: #d500d5;
+      --emerald: #00ffff;
+      --emerald-hover: #00cccc;
+      --amber: #ffe600;
+      --rose: #ff007f;
+      --indigo: #a855f7;
+      --subbar-bg: rgba(18, 0, 36, 0.9);
+      --badge-bg: #330052;
+    }
+
+    /* 28. Golden Sand (Desert Gold & Amber) */
+    [data-theme="golden-sand"] {
+      --bg: #1c150c;
+      --card-bg: #291e10;
+      --card-hover: #3b2c17;
+      --border: #594322;
+      --text: #fbf0dc;
+      --text-muted: #bda27e;
+      --text-title: #ffb300;
+      --accent: #ffb300;
+      --accent-hover: #e09d00;
+      --emerald: #10b981;
+      --emerald-hover: #059669;
+      --amber: #ffca28;
+      --rose: #f43f5e;
+      --indigo: #c2b280;
+      --subbar-bg: rgba(28, 21, 12, 0.9);
+      --badge-bg: #3b2c17;
+    }
+
+    /* 29. Deep Space (Starry Night & Nebula) */
+    [data-theme="deep-space"] {
+      --bg: #070913;
+      --card-bg: #0d1224;
+      --card-hover: #141c38;
+      --border: #232f57;
+      --text: #e2edfd;
+      --text-muted: #818cf8;
+      --text-title: #a5b4fc;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --emerald: #38bdf8;
+      --emerald-hover: #0ea5e9;
+      --amber: #fbbf24;
+      --rose: #f43f5e;
+      --indigo: #818cf8;
+      --subbar-bg: rgba(7, 9, 19, 0.9);
+      --badge-bg: #141c38;
+    }
+
+    /* 30. Candy Cotton (Soft Pink & Baby Blue) */
+    [data-theme="candy-cotton"] {
+      --bg: #1a1520;
+      --card-bg: #261f30;
+      --card-hover: #362c44;
+      --border: #524166;
+      --text: #fdf2f8;
+      --text-muted: #f472b6;
+      --text-title: #ffb6c1;
+      --accent: #ffb6c1;
+      --accent-hover: #f694a5;
+      --emerald: #7dd3fc;
+      --emerald-hover: #38bdf8;
+      --amber: #fde047;
+      --rose: #fb7185;
+      --indigo: #c084fc;
+      --subbar-bg: rgba(26, 21, 32, 0.9);
+      --badge-bg: #362c44;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     /* Scrollable app viewport - list scrolls without moving website header */
@@ -2706,6 +2860,210 @@ def create_app(
       vertical-align: middle;
       margin-right: 0.35rem;
     }
+
+    /* === RGB MODE === */
+    @keyframes rgbBorderPulse {
+      0%   { border-color: #ff0055; box-shadow: 0 0 10px rgba(255, 0, 85, 0.45); }
+      17%  { border-color: #ff8800; box-shadow: 0 0 10px rgba(255, 136, 0, 0.45); }
+      33%  { border-color: #ffea00; box-shadow: 0 0 10px rgba(255, 234, 0, 0.45); }
+      50%  { border-color: #00ff66; box-shadow: 0 0 10px rgba(0, 255, 102, 0.45); }
+      67%  { border-color: #00e5ff; box-shadow: 0 0 10px rgba(0, 229, 255, 0.45); }
+      83%  { border-color: #b000ff; box-shadow: 0 0 10px rgba(176, 0, 255, 0.45); }
+      100% { border-color: #ff0055; box-shadow: 0 0 10px rgba(255, 0, 85, 0.45); }
+    }
+    @keyframes rgbTextPulse {
+      0%   { color: #ff0055; }
+      17%  { color: #ff8800; }
+      33%  { color: #ffea00; }
+      50%  { color: #00ff66; }
+      67%  { color: #00e5ff; }
+      83%  { color: #b000ff; }
+      100% { color: #ff0055; }
+    }
+    @keyframes rgbGradientBar {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    body.rgb-mode .top-bar-area {
+      border-bottom: 2px solid transparent !important;
+      border-image: linear-gradient(90deg, #ff0055, #ff8800, #ffea00, #00ff66, #00e5ff, #b000ff, #ff0055) 1 !important;
+    }
+    body.rgb-mode .stat-card,
+    body.rgb-mode .panel,
+    body.rgb-mode .modal-content,
+    body.rgb-mode .show-dropdown,
+    body.rgb-mode .theme-card {
+      border: 1.5px solid transparent !important;
+      animation: rgbBorderPulse var(--rgb-duration, 4s) linear infinite;
+    }
+    body.rgb-mode .brand-icon {
+      animation: rgbTextPulse var(--rgb-duration, 4s) linear infinite, rgbBorderPulse var(--rgb-duration, 4s) linear infinite;
+    }
+    body.rgb-mode .brand-title {
+      background: linear-gradient(90deg, #ff0055, #ff8800, #ffea00, #00ff66, #00e5ff, #b000ff, #ff0055);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: rgbGradientBar var(--rgb-duration, 4s) ease infinite;
+    }
+    body.rgb-mode .nav-tab.active {
+      animation: rgbTextPulse var(--rgb-duration, 4s) linear infinite;
+      border-bottom: 2px solid currentColor !important;
+    }
+    body.rgb-mode .theme-swatch-badge {
+      animation: rgbBorderPulse var(--rgb-duration, 4s) linear infinite;
+    }
+    body.rgb-mode .btn-emerald,
+    body.rgb-mode .btn-accent {
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+      animation: rgbBorderPulse var(--rgb-duration, 4s) linear infinite;
+    }
+    body.rgb-mode .form-control:focus {
+      animation: rgbBorderPulse var(--rgb-duration, 4s) linear infinite;
+    }
+
+    /* === RGB Mode Toggle UI === */
+    .rgb-section {
+      border-top: 1px solid var(--border);
+      padding-top: 1.1rem;
+      margin-top: 0.25rem;
+    }
+    .rgb-section-label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.65rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .rgb-section-label input[type=checkbox] {
+      width: 1rem;
+      height: 1rem;
+      accent-color: #f72585;
+      cursor: pointer;
+    }
+    .rgb-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: rgba(0,0,0,0.2);
+      border-radius: 0.4rem;
+      padding: 0.6rem 0.85rem;
+      border: 1px solid var(--border);
+    }
+    .rgb-slider-row input[type=range] {
+      flex: 1;
+      accent-color: #f72585;
+      cursor: pointer;
+    }
+    .rgb-speed-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #f72585;
+      min-width: 2.5rem;
+      text-align: right;
+    }
+
+    /* === CUSTOM THEME PICKER === */
+    .theme-picker-wrapper {
+      position: relative;
+      width: 100%;
+    }
+    .theme-picker-trigger {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      padding: 0.6rem 0.85rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm, 0.375rem);
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .theme-picker-trigger:hover {
+      border-color: var(--accent);
+      background: var(--card-hover);
+    }
+    .theme-picker-trigger .trigger-swatch {
+      width: 1.2rem;
+      height: 1.2rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.2);
+    }
+    .theme-picker-trigger .trigger-chevron {
+      margin-left: auto;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      transition: transform 0.2s;
+    }
+    .theme-picker-trigger.open .trigger-chevron {
+      transform: rotate(180deg);
+    }
+    .theme-picker-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      z-index: 3000;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm, 0.375rem);
+      max-height: 280px;
+      overflow-y: auto;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    }
+    .theme-picker-dropdown.open {
+      display: block;
+    }
+    .theme-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.55rem 0.85rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text);
+      transition: background 0.1s;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .theme-picker-option:last-child { border-bottom: none; }
+    .theme-picker-option:hover,
+    .theme-picker-option.active {
+      background: var(--card-hover);
+      color: var(--accent);
+    }
+    .theme-picker-option .opt-swatch {
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+    .theme-picker-option .opt-name {
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .theme-picker-option .opt-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 140px;
+    }
   </style>
 </head>
 <body>
@@ -3096,6 +3454,21 @@ def create_app(
           </div>
         </div>
 
+        <!-- RGB Mode Feature in Settings Tab -->
+        <div class="rgb-section">
+          <label class="rgb-section-label" for="tab-rgb-mode-toggle">
+            <input type="checkbox" id="tab-rgb-mode-toggle" class="rgb-mode-toggle" onchange="toggleRGBMode(this.checked)">
+            <span>🌈 RGB Mode (Chroma Glow)</span>
+          </label>
+          <div id="tab-rgb-slider-container" class="rgb-slider-container" style="display:none; margin-top: 0.5rem;">
+            <div class="rgb-slider-row">
+              <span style="font-size:0.8rem; color:var(--text-muted); white-space:nowrap;">Speed</span>
+              <input type="range" id="tab-rgb-speed-slider" class="rgb-speed-slider" min="0" max="100" value="50" oninput="updateRGBSpeed(this.value)">
+              <span class="rgb-speed-badge rgb-speed-value" id="tab-rgb-speed-value">50</span>
+            </div>
+          </div>
+        </div>
+
         <div style="border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.5rem;">
           <h4 style="font-size: 0.95rem; font-weight: 600; color: var(--text-title, #fff); margin-bottom: 0.5rem;">⚡ Server Process Control</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
@@ -3230,42 +3603,40 @@ def create_app(
 
       <!-- 1. THEMES SECTION -->
       <div class="form-group">
-        <label class="form-label" for="theme-select" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <span>🎨 Color Theme</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);" id="active-theme-label">Cyber Dark</span>
-        <div class="theme-selector-row">
-          <span class="theme-swatch-badge" id="modal-theme-swatch" title="Active Theme Swatch"></span>
-          <select id="theme-select" class="form-control" onchange="setTheme(this.value)" style="padding: 0.65rem 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm, 0.375rem); width: 100%; flex: 1;">
-            <option value="cyber-dark">Cyber Dark — Midnight & Sky Cyan</option>
-            <option value="oled-neon">Midnight OLED — True Black & Neon Pink</option>
-            <option value="nord-frost">Nord Arctic — Nordic Frost & Slate</option>
-            <option value="dracula">Dracula Purple — Twilight Violet & Pastel</option>
-            <option value="emerald-matrix">Emerald Matrix — Obsidian & Vivid Green</option>
-            <option value="solar-sunset">Solar Sunset — Warm Charcoal & Amber</option>
-            <option value="tokyo-night">Tokyo Night — Deep Indigo & Cyan</option>
-            <option value="synthwave">Synthwave 80s — Retro Violet & Pink</option>
-            <option value="abyssal-ocean">Abyssal Ocean — Deep Marine & Teal</option>
-            <option value="monokai-pro">Monokai Pro — Dark Carbon & Gold</option>
-            <option value="terminal-crt">Terminal CRT — Retro Monospace & Green CRT</option>
-            <option value="paper-light">Paper Light — Clean Studio & Pure Light</option>
-            <option value="neo-brutalism">Neo-Brutalism — High Contrast & Pop Borders</option>
-            <option value="aurora-glass">Aurora Glass — Frosted Mesh & Glassmorphism</option>
-            <option value="catppuccin-mocha">Catppuccin Mocha — Warm Pastel & Rosewater</option>
-            <option value="rose-pine">Rosé Pine — Muted Rose & Twilight</option>
-            <option value="gruvbox-dark">Gruvbox Dark — Earthy Retro & Warm Orange</option>
-            <option value="solarized-dark">Solarized Dark — Scientific Blue & Yellow</option>
-            <option value="nightowl">Nightowl — Deep Navy & Coral</option>
-            <option value="vesper">Vesper — Warm Noir & Copper</option>
-            <option value="bios-amber">BIOS Amber — Vintage CRT & Amber Monochrome</option>
-            <option value="vapor-glitch">Vapor Glitch — Hyper Magenta & Acid Cyan</option>
-            <option value="mossy-stone">Mossy Stone — Deep Woodland Pine & Lichen</option>
-            <option value="crimson-eclipse">Crimson Eclipse — Blood Moon & Charcoal</option>
-            <option value="blueprint-draft">Blueprint Draft — Architectural Navy & Grid White</option>
-          </select>
+        </label>
+        <!-- Custom theme picker with swatches -->
+        <div class="theme-picker-wrapper" id="theme-picker-wrapper">
+          <div class="theme-picker-trigger" id="theme-picker-trigger" onclick="toggleThemePicker()">
+            <span class="trigger-swatch" id="trigger-swatch"></span>
+            <span id="trigger-label">Cyber Dark</span>
+            <span class="trigger-chevron">▼</span>
+          </div>
+          <div class="theme-picker-dropdown" id="theme-picker-dropdown"></div>
+        </div>
+        <!-- Hidden select kept for setTheme() compatibility -->
+        <select id="theme-select" style="display:none" onchange="setTheme(this.value)"></select>
+      </div>
+
+      <!-- 2. RGB MODE SECTION -->
+      <div class="rgb-section">
+        <label class="rgb-section-label" for="rgb-mode-toggle">
+          <input type="checkbox" id="rgb-mode-toggle" class="rgb-mode-toggle" onchange="toggleRGBMode(this.checked)">
+          <span>🌈 RGB Mode</span>
+        </label>
+        <div id="rgb-slider-container" class="rgb-slider-container" style="display:none; margin-top: 0.5rem;">
+          <div class="rgb-slider-row">
+            <span style="font-size:0.8rem;color:var(--text-muted);white-space:nowrap;">Speed</span>
+            <input type="range" id="rgb-speed-slider" class="rgb-speed-slider" min="0" max="100" value="50" oninput="updateRGBSpeed(this.value)">
+            <span class="rgb-speed-badge rgb-speed-value" id="rgb-speed-value">50</span>
+          </div>
         </div>
       </div>
 
       <!-- 2. SERVER CONTROL SECTION -->
+
       <div class="form-group" style="border-top: 1px solid var(--border); padding-top: 1.25rem;">
         <label class="form-label">⚡ Server Lifecycle & Process</label>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">
@@ -3433,6 +3804,17 @@ def create_app(
       document.querySelectorAll('#theme-select, #tab-theme-select, .theme-select').forEach(sel => {
         sel.value = themeId;
       });
+
+      // Sync custom theme picker trigger
+      const triggerSwatch = document.getElementById('trigger-swatch');
+      const triggerLabel = document.getElementById('trigger-label');
+      if (triggerSwatch && activeThemeObj.swatch) {
+        const swatchColor = activeThemeObj.swatch.includes('50%, ')
+          ? activeThemeObj.swatch.split('50%, ')[1].replace('50%)', '').trim()
+          : '#888';
+        triggerSwatch.style.background = swatchColor;
+      }
+      if (triggerLabel) triggerLabel.textContent = activeThemeObj.name;
     }
 
     function openSettingsModal() {
@@ -3999,6 +4381,7 @@ def create_app(
         });
     }
 
+    async function sortShowByIndex(idx, btn) {
       if (!currentExplorerShows || !currentExplorerShows[idx]) return;
       const show = currentExplorerShows[idx];
       const origHtml = btn ? btn.innerHTML : '⚡ Sort Now';
@@ -4033,6 +4416,7 @@ def create_app(
         }
       }
     }
+
 
     function toggleUnsureDropdown(idx) {
       const body = document.getElementById(`unsure-body-${idx}`);
@@ -4404,12 +4788,6 @@ def create_app(
       const empty = document.getElementById('library-empty');
       if (empty) empty.style.display = 'block';
 
-      try {
-        const cat = currentLibraryFilter || 'all';
-        const search = currentLibrarySearch || '';
-        const url = `/api/library?category=${cat}&search=${encodeURIComponent(search)}`;
-        const res = await fetch(url);
-        const data = await res.json();
       try {
         const cat = currentLibraryFilter || 'all';
         const search = currentLibrarySearch || '';
@@ -4975,6 +5353,122 @@ def create_app(
         showToast('Update check failed: ' + e.message);
       }
     }
+
+    // ============ THEME PICKER ============
+    function buildThemePicker() {
+      const dropdown = document.getElementById('theme-picker-dropdown');
+      if (!dropdown) return;
+      dropdown.innerHTML = '';
+      const currentTheme = localStorage.getItem('ms-theme') || 'cyber-dark';
+      THEMES.forEach(theme => {
+        const opt = document.createElement('div');
+        opt.className = 'theme-picker-option' + (theme.id === currentTheme ? ' active' : '');
+        opt.dataset.themeId = theme.id;
+        // Extract accent color from swatch gradient for the circle
+        const swatchColor = theme.swatch.includes('50%, ') ? theme.swatch.split('50%, ')[1].replace('50%)', '').trim() : '#888';
+        opt.innerHTML = `
+          <span class="opt-swatch" style="background:${swatchColor};"></span>
+          <span class="opt-name">${theme.name}</span>
+          <span class="opt-desc">${theme.desc}</span>
+        `;
+        opt.onclick = () => selectTheme(theme.id);
+        dropdown.appendChild(opt);
+      });
+    }
+
+    function toggleThemePicker() {
+      const trigger = document.getElementById('theme-picker-trigger');
+      const dropdown = document.getElementById('theme-picker-dropdown');
+      if (!trigger || !dropdown) return;
+      const isOpen = dropdown.classList.contains('open');
+      if (isOpen) {
+        dropdown.classList.remove('open');
+        trigger.classList.remove('open');
+      } else {
+        buildThemePicker();
+        dropdown.classList.add('open');
+        trigger.classList.add('open');
+      }
+    }
+
+    function selectTheme(themeId) {
+      setTheme(themeId);
+      // Update trigger display
+      const theme = THEMES.find(t => t.id === themeId);
+      if (theme) {
+        const triggerSwatch = document.getElementById('trigger-swatch');
+        const triggerLabel = document.getElementById('trigger-label');
+        if (triggerSwatch) {
+          const swatchColor = theme.swatch.includes('50%, ') ? theme.swatch.split('50%, ')[1].replace('50%)', '').trim() : '#888';
+          triggerSwatch.style.background = swatchColor;
+        }
+        if (triggerLabel) triggerLabel.textContent = theme.name;
+      }
+      // Close dropdown
+      const dropdown = document.getElementById('theme-picker-dropdown');
+      const trigger = document.getElementById('theme-picker-trigger');
+      if (dropdown) dropdown.classList.remove('open');
+      if (trigger) trigger.classList.remove('open');
+      // Update active state in dropdown options
+      document.querySelectorAll('.theme-picker-option').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.themeId === themeId);
+      });
+    }
+
+    // Close theme picker when clicking outside
+    document.addEventListener('click', (e) => {
+      const wrapper = document.getElementById('theme-picker-wrapper');
+      if (wrapper && !wrapper.contains(e.target)) {
+        const dropdown = document.getElementById('theme-picker-dropdown');
+        const trigger = document.getElementById('theme-picker-trigger');
+        if (dropdown) dropdown.classList.remove('open');
+        if (trigger) trigger.classList.remove('open');
+      }
+    });
+
+    // ============ RGB MODE ============
+    function toggleRGBMode(enabled) {
+      if (enabled) {
+        document.documentElement.classList.add('rgb-mode');
+        document.body.classList.add('rgb-mode');
+        document.querySelectorAll('.rgb-slider-container').forEach(el => el.style.display = 'block');
+      } else {
+        document.documentElement.classList.remove('rgb-mode');
+        document.body.classList.remove('rgb-mode');
+        document.querySelectorAll('.rgb-slider-container').forEach(el => el.style.display = 'none');
+      }
+      document.querySelectorAll('.rgb-mode-toggle').forEach(el => el.checked = !!enabled);
+      try { localStorage.setItem('ms-rgb-mode', enabled ? '1' : '0'); } catch (e) {}
+    }
+
+    function updateRGBSpeed(val) {
+      // val 0-100: map to duration 10s (slow) → 0.5s (fast)
+      const v = parseInt(val, 10);
+      const duration = (10 - (v / 100) * 9.5).toFixed(2) + 's';
+      document.documentElement.style.setProperty('--rgb-duration', duration);
+      document.querySelectorAll('.rgb-speed-value').forEach(badge => {
+        badge.textContent = v;
+      });
+      document.querySelectorAll('.rgb-speed-slider').forEach(slider => {
+        slider.value = v;
+      });
+      try { localStorage.setItem('ms-rgb-speed', v); } catch (e) {}
+    }
+
+    // ============ INIT ============
+    (function initExtras() {
+      // Init theme picker trigger display
+      const currentTheme = localStorage.getItem('ms-theme') || 'cyber-dark';
+      setTheme(currentTheme);
+
+      // Restore RGB mode
+      try {
+        const rgbEnabled = localStorage.getItem('ms-rgb-mode') === '1';
+        const rgbSpeed = parseInt(localStorage.getItem('ms-rgb-speed') || '50', 10);
+        toggleRGBMode(rgbEnabled);
+        updateRGBSpeed(rgbSpeed);
+      } catch (e) {}
+    })();
 
     loadDashboard();
   </script>

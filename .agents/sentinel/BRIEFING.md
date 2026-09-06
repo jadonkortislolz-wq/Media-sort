@@ -1,12 +1,13 @@
-# BRIEFING — 2026-09-05T18:48:23Z
+# BRIEFING — 2026-09-05T23:48:06Z
 
 ## Mission
-Ensure production-grade reliability, modularity, and maintainability for Media Sorter via comprehensive audit, decoupling, database hardening, and test expansion.
+Expand Media Sorter automated sorting rules, classification edge-case handling (TV series, Anime, Movies, multi-part, specials, year tags), and build comprehensive automated test suite and regression benchmark.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /md0/media-sorter/.agents/sentinel
 - Orchestrator: dd8d62a8-8522-473a-8123-8f8d672e10a1
+- Orchestrator (current): 55e25733-b82c-41da-a4ba-b46248b75abb
 - Victory Auditor: [auditor conversation ID, or to be spawned on victory claim]
 
 ## 🔒 Key Constraints
@@ -16,17 +17,17 @@ Ensure production-grade reliability, modularity, and maintainability for Media S
 - Do not report completion without VICTORY CONFIRMED verdict
 
 ## User Context
-- **Last user request**: Architectural decoupling, database hardening, input validation, test expansion, filesystem guardrails for Media Sorter.
+- **Last user request**: Conduct a comprehensive feature enhancement, architectural decoupling, and thorough automated bug testing suite execution for the Media Sorter application.
 - **Pending clarifications**: None
-- **Delivered results**: None yet (orchestrator dispatched)
+- **Delivered results**: None yet (orchestrator_3 active)
 
 ## Project Status
 - **Phase**: in progress
 - **Route**: General (teamwork_preview_orchestrator)
-- **Rationale**: Multi-part codebase audit, architectural decoupling, database transaction hardening, and test suite expansion with complex acceptance criteria.
+- **Rationale**: Full-scope feature enhancement, architectural decoupling, database transaction scoping, and automated bug testing suite.
 - **Crons**:
-  - Cron 1 (Progress Reporting): 57c38a00-69ec-427f-a658-1410a6318bd2/task-14 (*/8 * * * *)
-  - Cron 2 (Liveness Check): 57c38a00-69ec-427f-a658-1410a6318bd2/task-16 (*/10 * * * *)
+  - Cron 1 (Progress Reporting): f78201d6-c398-4964-89e1-45346fece778/task-36 (*/8 * * * *)
+  - Cron 2 (Liveness Check): f78201d6-c398-4964-89e1-45346fece778/task-38 (*/10 * * * *)
 
 ## Victory Audit Status
 - **Triggered**: no
