@@ -125,6 +125,22 @@
   --accent-hover: #3b82f6;
 }
 
+/* RGB mode styling */
+.rgb-mode {
+  --rgb-duration: 5s;
+}
+.rgb-mode .card,
+.rgb-mode .btn,
+.rgb-mode .theme-select {
+  animation: rgbPulse var(--rgb-duration) infinite;
+}
+@keyframes rgbPulse {
+  0% { box-shadow: 0 0 8px rgba(255,0,0,0.5); }
+  33% { box-shadow: 0 0 8px rgba(0,255,0,0.5); }
+  66% { box-shadow: 0 0 8px rgba(0,0,255,0.5); }
+  100% { box-shadow: 0 0 8px rgba(255,0,0,0.5); }
+}
+
 [data-theme="neon-forest"] {
   --bg: #001408;
   --card-bg: #032410;

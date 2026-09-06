@@ -141,3 +141,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added missing custom themes: neon-forest, retro-retro, golden-sand, deep-space, candy-cotton.
 - Implemented RGB Chroma mode UI with toggle and speed slider, keyframe animations, and persistence via localStorage.
 - Added unit tests for theme availability and RGB feature.
+## [1.0.9] - 2026-09-06
+
+### Added
+- Implemented `.rgb-mode` CSS class with keyframe animation for chroma glow.
+- Updated project version to 1.0.9 across metadata.
+
+### Fixed
+- RGB visual effect was missing, now correctly applied.
+- Version numbers were out‑of‑sync between `pyproject.toml` and package `__init__`.
+
